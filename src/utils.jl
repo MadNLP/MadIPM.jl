@@ -84,9 +84,9 @@ end
     scaling::Bool = true
     bound_push::Float64 = 1e-2
     bound_fac::Float64 = 1e-2
-    bound_relax_factor::Float64 = 1e-8
+    bound_relax_factor::Float64 = 1e-12
     # Regularization
-    regularization::AbstractRegularization = FixedRegularization(1e-8, 0.0)
+    regularization::AbstractRegularization = FixedRegularization(1e-10, -1e-10)
     # Step
     step_rule::AbstractStepRule = AdaptiveStep(0.99)
     # Barrier
@@ -94,7 +94,7 @@ end
     max_ncorr::Int = 0
     s_max::Float64 = 100.0
     mu_init::Float64 = 1e-1
-    mu_min::Float64 = 1e-11
+    mu_min::Float64 = 1e-12
     mu_superlinear_decrease_power::Float64 = 1.5
     tau_min::Float64 = 0.99
     # Linear solve
