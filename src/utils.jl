@@ -86,7 +86,7 @@ end
     bound_fac::Float64 = 1e-2
     bound_relax_factor::Float64 = 1e-12
     # Regularization
-    regularization::AbstractRegularization = FixedRegularization(1e-10, -1e-10)
+    regularization::AbstractRegularization = FixedRegularization(1e-10, 1e-10)
     # Step
     step_rule::AbstractStepRule = AdaptiveStep(0.99)
     # Barrier
