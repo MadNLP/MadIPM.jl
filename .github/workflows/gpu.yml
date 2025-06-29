@@ -1,4 +1,4 @@
-name: moonshot
+name: gpu
 
 on:
   push:
@@ -37,7 +37,7 @@ jobs:
         run: |
           using Pkg
           Pkg.activate(".")
-          path_HSL_jll = "/scratch/github-actions/actions_runner_hsl/HSL_jll.jl.v" * ENV["HSL_VERSION"]
+          path_HSL_jll = "/scratch/github-actions/actions_runner_madnlphsl/HSL_jll.jl.v" * ENV["HSL_VERSION"]
           Pkg.develop(path=path_HSL_jll)
       - name: Test MadIPM.jl on CPU
         shell: julia --color=yes {0}
@@ -51,6 +51,6 @@ jobs:
           using Pkg
           Pkg.activate("./scripts")
           Pkg.develop(path=".")
-          path_HSL_jll = "/scratch/github-actions/actions_runner_hsl/HSL_jll.jl.v" * ENV["HSL_VERSION"]
+          path_HSL_jll = "/scratch/github-actions/actions_runner_madnlphsl/HSL_jll.jl.v" * ENV["HSL_VERSION"]
           Pkg.develop(path=path_HSL_jll)
           include("/scratch/github-actions/actions_runner_madipm/_work/MadIPM.jl/MadIPM.jl/scripts/test_gpu.jl")
