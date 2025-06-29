@@ -296,3 +296,8 @@ function assemble_normal_system!(
         end
     end
 end
+
+sparse_csc_format(::Type{<:Array}) = SparseArrays.SparseMatrixCSC
+_colptr(A::SparseArrays.SparseArrays.SparseMatrixCSC) = A.colptr
+_rowval(A::SparseArrays.SparseMatrixCSC) = A.rowval
+_nzval(A::SparseArrays.SparseMatrixCSC) = A.nzval

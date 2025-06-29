@@ -346,7 +346,7 @@ function update_step!(rule::MehrotraAdaptiveStep, solver)
 
     alpha_p, alpha_d = 1.0, 1.0
 
-    # Require CUDA.jl as a dependency of MadQP.jl
+    # Require CUDA.jl as a dependency of MadIPM.jl
     # CUDA.@allowscalar begin
     if max_alpha_p < 1.0
         if alpha_xl <= alpha_xu

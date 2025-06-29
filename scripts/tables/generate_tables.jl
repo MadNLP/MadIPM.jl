@@ -2,7 +2,7 @@ using DelimitedFiles
 using DataFrames
 using SolverBenchmark
 
-collection = "benchmark-netlib"
+collection = "benchmark-miplib"
 results_cpu = "$collection-cpu.txt"
 results_gpu = "$collection-gpu.txt"
 verbose = false
@@ -19,9 +19,9 @@ df = DataFrame(
   nvar=Int[],
   ncon=Int[],
   nnzj=Int[],
-  iter_cpu=Int[],
+  # iter_cpu=Int[],
   time_cpu=Float64[],
-  iter_gpu=Int[],
+  # iter_gpu=Int[],
   time_gpu=Float64[],
   ratio_time=Float64[]
 )
@@ -66,7 +66,8 @@ for k = 1:m_cpu  # Number of instances
   st_cpu = convert(Int, status_cpu)
   st_gpu = convert(Int, status_gpu)
   if (st_cpu == 1) && (st_gpu == 1)
-    results = (instance, nvar, ncon, nnzj, iter_cpu, linear_solver_time_cpu, iter_gpu, linear_solver_time_gpu, ratio_linear_solver_time)
+    # results = (instance, nvar, ncon, nnzj, iter_cpu, linear_solver_time_cpu, iter_gpu, linear_solver_time_gpu, ratio_linear_solver_time)
+    results = (instance, nvar, ncon, nnzj, total_time_cpu, total_time_gpu, ratio_total_time)
     push!(df, results)
   end
 end

@@ -88,13 +88,27 @@ function MadNLP.create_kkt_system(
     A_csr_map = convert.(Int, Ax)
 
     # Store transposed matrix in CSC format
-    AT = SparseArrays.SparseMatrixCSC(ntot, m, Ap, Aj, Ax)
+    CSC = sparse_csc_format(VT)
+    AT = CSC <: SparseArrays.SparseMatrixCSC ? CSC(ntot, m, Ap, Aj, Ax) : CSC(Ap, Aj, Ax, (ntot, m))
 
     # Assemble normal KKT system in CSR format
-    AAp, AAj = build_normal_system(m, ntot, Ap, Aj)
+    if CSC <: SparseArrays.SparseMatrixCSC
+        AAp, AAj = build_normal_system(m, ntot, Ap, Aj)
+    else
+        # Target sparse gemm in CUSPARSE
+        # S = SparseArrays.sparse(transpose(AT)) * AT
+        # S = tril(S)
+        # AAp = S.colPtr
+        # AAj = S.rowVal
+
+        AAp_h, AAj_h = build_normal_system(m, ntot, Vector(Ap), Vector(Aj))
+        VII = typeof(Ap)
+        AAp = VII(AAp_h)
+        AAj = VII(AAj_h)
+    end
     AAx = VT(undef, length(AAj))
 
-    aug_com = SparseArrays.SparseMatrixCSC(m, m, AAp, AAj, AAx)
+    aug_com = CSC <: SparseArrays.SparseMatrixCSC ? CSC(m, m, AAp, AAj, AAx) : CSC(AAp, AAj, AAx, (m, m))
 
     _linear_solver = linear_solver(
         aug_com; opt = opt_linear_solver
@@ -166,12 +180,12 @@ end
 function MadNLP.build_kkt!(kkt::NormalKKTSystem)
     m, n = kkt.m, kkt.n
     D = kkt.buffer_n
-    Cp = kkt.aug_com.colptr
-    Cj = kkt.aug_com.rowval
-    Cx = kkt.aug_com.nzval
-    Ap = kkt.AT.colptr
-    Aj = kkt.AT.rowval
-    Ax = kkt.AT.nzval
+    Cp = _colptr(kkt.aug_com)
+    Cj = _rowval(kkt.aug_com)
+    Cx = _nzval(kkt.aug_com)
+    Ap = _colptr(kkt.AT)
+    Aj = _rowval(kkt.AT)
+    Ax = _nzval(kkt.AT)
 
     # Build normal matrix A Σ⁻¹ Aᵀ
     D .= 1.0 ./ kkt.pr_diag
@@ -214,7 +228,6 @@ function MadNLP.mul!(w::MadNLP.AbstractKKTVector{T}, kkt::NormalKKTSystem, v::Ma
     mul!(wx, kkt.AT, vy, alpha, beta)
     mul!(wy, kkt.AT', vx, alpha, beta)
 
-    MadNLP._kktmul!(w,v,kkt.reg,kkt.du_diag,kkt.l_lower,kkt.u_lower,kkt.l_diag,kkt.u_diag, alpha, beta)
+    MadNLP._kktmul!(w,v,kkt.reg, kkt.du_diag, kkt.l_lower, kkt.u_lower, kkt.l_diag, kkt.u_diag, alpha, beta)
     return w
 end
-
