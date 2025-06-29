@@ -7,7 +7,9 @@ using QuadraticModels
 function _compare_with_nlp(n, m, ind_fixed, ind_eq; max_ncorr=0, atol=1e-5)
     x0 = zeros(n)
     qp = MadNLPTests.DenseDummyQP(x0; m=m)
-    nlp_solver = MadNLP.MadNLPSolver(qp; print_level=MadNLP.ERROR)
+    # Solve with MadNLP for reference.
+    # Set `bound_relax_factor=1e-10` to get same behavior as in MadQP.
+    nlp_solver = MadNLP.MadNLPSolver(qp; print_level=MadNLP.ERROR, bound_relax_factor=1e-10)
     nlp_stats = MadNLP.solve!(nlp_solver)
 
     qp_solver = MadIPM.MPCSolver(qp; print_level=MadNLP.ERROR, max_ncorr=max_ncorr)
