@@ -55,5 +55,6 @@ jobs:
           Pkg.develop(path=".")
           path_HSL_jll = "/scratch/github-actions/actions_runner_madnlphsl/HSL_jll.jl.v" * ENV["HSL_VERSION"]
           Pkg.develop(path=path_HSL_jll)
+          using MadIPM
           path_MadIPM = pkgdir(MadIPM)
           include("$(path_MadIPM)/scripts/test_gpu.jl")
