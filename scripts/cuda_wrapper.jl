@@ -272,3 +272,4 @@ MadIPM.sparse_csc_format(::Type{<:CuArray}) = CuSparseMatrixCSC
 MadIPM._colptr(A::CuSparseMatrixCSC) = A.colPtr
 MadIPM._rowval(A::CuSparseMatrixCSC) = A.rowVal
 MadIPM._nzval(A::CuSparseMatrixCSC) = A.nzVal
+
