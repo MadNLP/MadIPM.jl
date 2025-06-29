@@ -1,4 +1,4 @@
-
+using KernelAbstractions
 using MadNLPGPU
 
 @testset "MadIPMCUDA" begin

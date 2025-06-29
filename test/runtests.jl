@@ -198,4 +198,3 @@ end
 if CUDA.functional()
     include("test_gpu.jl")
 end
-
