@@ -195,7 +195,7 @@ end
     end
 end
 
-if CUDA.has_cuda()
+if CUDA.functional()
     include("test_gpu.jl")
 end
 
