@@ -1,9 +1,4 @@
-using CUDA
-using CUDA.CUSPARSE
 using MadNLPGPU
-using KernelAbstractions
-using SparseArrays
-using LinearAlgebra
 import LinearAlgebra: BlasFloat
 
 @kernel function _transfer_to_map!(dest, to_map, src)
@@ -108,36 +103,6 @@ function MadIPM.coo_to_csr(
     @assert length(Ai) == length(Aj) == length(Ax)
     B = sparse(Ai, Aj, Ax, n_rows, n_cols; fmt=:csr)
     return (B.rowPtr, B.colVal, B.nzVal)
-end
-
-# Should be backported in MadNLPGPU.jl in the future
-@kernel function _scale_augmented_system_coo_kernel!(dest_V, @Const(src_I), @Const(src_J), @Const(src_V), @Const(scaling), @Const(n), @Const(m))
-    k = @index(Global, Linear)
-    i = src_I[k]
-    j = src_J[k]
-
-    # Primal regularization pr_diag
-    if k <= n
-        dest_V[k] = src_V[k]
-    # Hessian block
-    elseif i <= n && j <= n
-        dest_V[k] = src_V[k] * scaling[i] * scaling[j]
-    # Jacobian block
-    elseif n + 1 <= i <= n + m && j <= n
-        dest_V[k] = src_V[k] * scaling[j]
-    # Dual regularization du_diag
-    elseif (n + 1 <= i <= n + m) && (n + 1 <= j <= n + m)
-        dest_V[k] = src_V[k]
-    end
-    nothing
-end
-
-function MadNLP._build_scale_augmented_system_coo!(dest, src, scaling::CuArray, n, m)
-    backend = CUDABackend()
-    kernel! = _scale_augmented_system_coo_kernel!(backend)
-    N = nnz(src)
-    kernel!(dest.V, src.I, src.J, src.V, scaling, n, m; ndrange = N)
-    KernelAbstractions.synchronize(backend)
 end
 
 @kernel function assemble_normal_system_kernel!(@Const(n_rows), @Const(n_cols), @Const(Jtp), @Const(Jtj), @Const(Jtx),

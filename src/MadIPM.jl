@@ -6,6 +6,8 @@ import SparseArrays
 import MadNLP
 import MadNLP: full, LDLFactorizations
 import NLPModels
+import QuadraticModels
+import QuadraticModels: SparseMatrixCOO
 
 include("utils.jl")
 include("structure.jl")

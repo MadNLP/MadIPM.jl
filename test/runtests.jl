@@ -3,6 +3,7 @@ using MadNLP
 using MadIPM
 using MadNLPTests
 using QuadraticModels
+using CUDA
 
 function _compare_with_nlp(n, m, ind_fixed, ind_eq; max_ncorr=0, atol=1e-5)
     x0 = zeros(n)
@@ -148,6 +149,18 @@ end
     )
     sol_ref = MadIPM.solve!(qp_solver)
 
+    @testset "Presolve" begin
+        new_qp, flag = MadIPM.presolve_qp(qp)
+        @test flag
+    end
+
+    @testset "Standard formulation" begin
+        new_qp = MadIPM.standard_form_qp(qp)
+        solver = MadIPM.MPCSolver(new_qp; print_level=MadNLP.ERROR)
+        sol = MadIPM.solve!(solver)
+        @test sol.objective == sol_ref.objective
+    end
+
     @testset "NormalKKTSystem implementation" begin
         # Test
         linear_solver = MadNLP.LapackCPUSolver
@@ -182,3 +195,6 @@ end
     end
 end
 
+if CUDA.functional()
+    include("test_gpu.jl")
+end
