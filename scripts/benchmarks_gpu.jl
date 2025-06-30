@@ -3,11 +3,12 @@ using MadNLP
 using MadIPM
 using QPSReader
 using QuadraticModels
+using KernelAbstractions
+using MadNLPGPU
+using CUDA
 
 include("common.jl")
 include("excluded_problems.jl")
-include("cuda_wrapper.jl")
-include("qp_gpu.jl")
 
 function run_benchmark(src, probs; reformulate::Bool=false, test_reader::Bool=false)
     nprobs = length(probs)
@@ -25,27 +26,22 @@ function run_benchmark(src, probs; reformulate::Bool=false, test_reader::Bool=fa
         if !test_reader
             # Instantiate QuadraticModel
             qp = QuadraticModel(qpdat)
-            presolved_qp, flag = presolve_qp(qp)
+            presolved_qp, flag = MadIPM.presolve_qp(qp)
             !flag && continue  # problem already solved, unbounded or infeasible
             scaled_qp = scale_qp(presolved_qp)
-            qp_cpu = reformulate ? standard_form_qp(scaled_qp) : scaled_qp
+            qp_cpu = reformulate ? MadIPM.standard_form_qp(scaled_qp) : scaled_qp
 
             # Transfer data to the GPU
-            qp_gpu = transfer_to_gpu(qp_cpu)
+            qp_gpu = convert(QuadraticModel{Float64, CuVector{Float64}}, qp_cpu)
 
             try
                 solver = MadIPM.MPCSolver(
                     qp_gpu;
                     max_iter=300,
-                    tol=1e-7,
+                    tol=1e-8,
                     linear_solver=MadNLPGPU.CUDSSSolver,
                     cudss_algorithm=MadNLP.LDL,
                     print_level=MadNLP.INFO,
-                    max_ncorr=3,
-                    bound_push=1.0,
-                    scaling=true,
-                    step_rule=MadIPM.AdaptiveStep(0.995),
-                    regularization=MadIPM.FixedRegularization(1e-8, -1e-8),
                     rethrow_error=true,
                 )
                 res = MadIPM.solve!(solver)
@@ -76,18 +72,18 @@ end
 # mps_files = filter(x -> endswith(x, ".SIF") && !(x in excluded_mm), readdir(src))
 # name_results = "benchmark-mm-gpu.txt"
 
-src = "/home/amontoison/Argonne/miplib"
-mps_files = filter(x -> endswith(x, ".mps.gz") && !(x in excluded_miplib), readdir(src))
-name_results = "benchmark-miplib-gpu.txt"
+# src = "/home/amontoison/Argonne/miplib"
+# mps_files = filter(x -> endswith(x, ".mps.gz") && !(x in excluded_miplib), readdir(src))
+# name_results = "benchmark-miplib-gpu.txt"
 
 # src = "/home/amontoison/Argonne/large-scale-LPs"
 # mps_files = filter(x -> endswith(x, ".mps.gz") || endswith(x, ".mps"), readdir(src))
 # name_results = "benchmark-fp-gpu.txt"
 
-# variant = "medium"
-# src = "/home/amontoison/Argonne/LP_instances/$variant-problem-instances"
-# mps_files = filter(x -> endswith(x, ".mps.gz"), readdir(src))
-# name_results = "benchmark-$variant-pdlp-gpu.txt"
+variant = "medium"
+src = "/home/amontoison/Argonne/LP_instances/$variant-problem-instances"
+mps_files = filter(x -> endswith(x, ".mps.gz"), readdir(src))
+name_results = "benchmark-$variant-pdlp-gpu.txt"
 
 reformulate = false
 test_reader = false

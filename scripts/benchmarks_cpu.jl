@@ -24,10 +24,10 @@ function run_benchmark(src, probs; reformulate::Bool=false, test_reader::Bool=fa
 
         if !test_reader
             qp = QuadraticModel(qpdat)
-            presolved_qp, flag = presolve_qp(qp)
+            presolved_qp, flag = MadIPM.presolve_qp(qp)
             !flag && continue  # problem already solved, unbounded or infeasible
             scaled_qp = scale_qp(presolved_qp)
-            qp_cpu = reformulate ? standard_form_qp(scaled_qp) : scaled_qp
+            qp_cpu = reformulate ? MadIPM.standard_form_qp(scaled_qp) : scaled_qp
 
             try
                 solver = MadIPM.MPCSolver(
@@ -35,13 +35,7 @@ function run_benchmark(src, probs; reformulate::Bool=false, test_reader::Bool=fa
                     max_iter=300,
                     linear_solver=LDLSolver,
                     print_level=MadNLP.INFO,
-                    max_ncorr=3,
-                    scaling=true,
-                    step_rule=MadIPM.AdaptiveStep(0.995),
-                    regularization=MadIPM.FixedRegularization(1e-8, -1e-8),
-                    kkt_system=MadIPM.NormalKKTSystem,
                     rethrow_error=true,
-                    mu_min=1e-12,
                 )
                 res = MadIPM.solve!(solver)
                 results[k, 1] = Int(qp_cpu.meta.nvar)
