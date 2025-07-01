@@ -25,9 +25,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@latest
+      - uses: julia-actions/setup-juliaup@latest
         with:
-          version: ${{ matrix.julia-version }}
+          channel: ${{ matrix.julia-version }}
           arch: ${{ matrix.julia-arch }}
       - uses: julia-actions/julia-buildpkg@latest
       - name: Test MadIPM.jl
