@@ -15,7 +15,8 @@ jobs:
     env:
       CUDA_VISIBLE_DEVICES: 1
       JULIA_DEPOT_PATH: /scratch/github-actions/julia_depot_madipm
-    runs-on: self-hosted
+    runs-on:
+      labels: cuda
     strategy:
       matrix:
         julia-version: ['lts', '1']
@@ -24,10 +25,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@latest
+      - uses: julia-actions/install-juliaup@v2
         with:
-          version: ${{ matrix.julia-version }}
-          arch: ${{ matrix.julia-arch }}
+          channel: ${{ matrix.julia-version }}
       - uses: julia-actions/julia-buildpkg@latest
       - name: Test MadIPM.jl
         shell: julia --color=yes {0}
