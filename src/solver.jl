@@ -178,6 +178,8 @@ function initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
 
     solver.mu = opt.mu_init
 
+    solver.cnt.start_time = time()
+
     return MadNLP.REGULAR
 end
 
@@ -280,6 +282,8 @@ function mpc!(solver::MadNLP.AbstractMadNLPSolver)
             return MadNLP.SOLVE_SUCCEEDED
         elseif solver.cnt.k >= solver.opt.max_iter
             return MadNLP.MAXIMUM_ITERATIONS_EXCEEDED
+        elseif time()-solver.cnt.start_time >= solver.opt.max_wall_time
+            return MadNLP.MAXIMUM_WALLTIME_EXCEEDED
         end
 
         #####
