@@ -15,7 +15,8 @@ jobs:
     env:
       CUDA_VISIBLE_DEVICES: 1
       JULIA_DEPOT_PATH: /scratch/github-actions/julia_depot_madipm
-    runs-on: self-hosted
+    runs-on:
+      labels: cuda
     strategy:
       matrix:
         julia-version: ['lts', '1']
