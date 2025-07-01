@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: julia-actions/setup-juliaup@latest
+      - uses: julia-actions/install-juliaup@latest
         with:
           channel: ${{ matrix.julia-version }}
           arch: ${{ matrix.julia-arch }}
