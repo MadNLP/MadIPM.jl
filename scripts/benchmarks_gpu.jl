@@ -7,10 +7,6 @@ using KernelAbstractions
 using MadNLPGPU
 using CUDA
 
-using CUDA
-using KernelAbstractions
-using MadNLPGPU
-
 include("common.jl")
 include("excluded_problems.jl")
 
