@@ -33,7 +33,7 @@ function run_benchmark(src, probs; reformulate::Bool=false, test_reader::Bool=fa
                 solver = MadIPM.MPCSolver(
                     qp_cpu;
                     max_iter=300,
-                    linear_solver=LDLSolver,
+                    linear_solver=Ma57Solver,
                     print_level=MadNLP.INFO,
                     rethrow_error=true,
                 )
@@ -57,19 +57,19 @@ function run_benchmark(src, probs; reformulate::Bool=false, test_reader::Bool=fa
     return results
 end
 
-src = fetch_netlib()
-name_results = "benchmark-netlib-cpu.txt"
-mps_files = filter(x -> endswith(x, ".SIF") && !(x in excluded_netlib), readdir(src))
+# src = fetch_netlib()
+# name_results = "benchmark-netlib-cpu.txt"
+# mps_files = filter(x -> endswith(x, ".SIF") && !(x in excluded_netlib), readdir(src))
 
 # src = fetch_mm()
 # name_results = "benchmark-mm-cpu.txt"
 # mps_files = filter(x -> endswith(x, ".SIF") && !(x in excluded_mm), readdir(src))
 
-# src = "/home/amontoison/Argonne/miplib"
-# name_results = "benchmark-miplib-cpu.txt"
-# mps_files = filter(x -> endswith(x, ".mps.gz") && !(x in excluded_miplib), readdir(src))
+src = joinpath(@__DIR__, "instances", "miplib2010")
+mps_files = readdlm(joinpath(@__DIR__, "miplib_problems.txt"))[:]
+name_results = "benchmark-miplib-cpu.txt"
 
-reformulate = false
+reformulate = true
 test_reader = false
 results = run_benchmark(src, mps_files; reformulate, test_reader)
 path_results = joinpath(@__DIR__, "tables", name_results)

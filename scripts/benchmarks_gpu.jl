@@ -7,6 +7,10 @@ using KernelAbstractions
 using MadNLPGPU
 using CUDA
 
+using CUDA
+using KernelAbstractions
+using MadNLPGPU
+
 include("common.jl")
 include("excluded_problems.jl")
 
@@ -38,7 +42,6 @@ function run_benchmark(src, probs; reformulate::Bool=false, test_reader::Bool=fa
                 solver = MadIPM.MPCSolver(
                     qp_gpu;
                     max_iter=300,
-                    tol=1e-8,
                     linear_solver=MadNLPGPU.CUDSSSolver,
                     cudss_algorithm=MadNLP.LDL,
                     print_level=MadNLP.INFO,
@@ -72,20 +75,20 @@ end
 # mps_files = filter(x -> endswith(x, ".SIF") && !(x in excluded_mm), readdir(src))
 # name_results = "benchmark-mm-gpu.txt"
 
-# src = "/home/amontoison/Argonne/miplib"
-# mps_files = filter(x -> endswith(x, ".mps.gz") && !(x in excluded_miplib), readdir(src))
-# name_results = "benchmark-miplib-gpu.txt"
-
 # src = "/home/amontoison/Argonne/large-scale-LPs"
 # mps_files = filter(x -> endswith(x, ".mps.gz") || endswith(x, ".mps"), readdir(src))
 # name_results = "benchmark-fp-gpu.txt"
 
-variant = "medium"
-src = "/home/amontoison/Argonne/LP_instances/$variant-problem-instances"
-mps_files = filter(x -> endswith(x, ".mps.gz"), readdir(src))
-name_results = "benchmark-$variant-pdlp-gpu.txt"
+# variant = "medium"
+# src = "/home/amontoison/Argonne/LP_instances/$variant-problem-instances"
+# mps_files = filter(x -> endswith(x, ".mps.gz"), readdir(src))
+# name_results = "benchmark-$variant-pdlp-gpu.txt"
 
-reformulate = false
+src = joinpath(@__DIR__, "instances", "miplib2010")
+mps_files = readdlm(joinpath(@__DIR__, "miplib_problems.txt"))[:]
+name_results = "benchmark-miplib-gpu.txt"
+
+reformulate = true
 test_reader = false
 results = run_benchmark(src, mps_files; reformulate, test_reader)
 path_results = joinpath(@__DIR__, "tables", name_results)
