@@ -7,7 +7,8 @@ import MadNLP
 import MadNLP: full, LDLFactorizations
 import NLPModels
 import QuadraticModels
-import QuadraticModels: SparseMatrixCOO
+import QuadraticModels: SparseMatrixCOO, QuadraticModel
+import AMD
 
 include("utils.jl")
 include("structure.jl")
