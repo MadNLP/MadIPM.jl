@@ -15,5 +15,6 @@ include("kernels.jl")
 include("KKT/normalkkt.jl")
 include("linear_solver.jl")
 include("solver.jl")
+include("permutation.jl")
 
 end # module MadIPM
