@@ -40,6 +40,7 @@ function run_benchmark(src, probs; reformulate::Bool=false, test_reader::Bool=fa
                     max_iter=300,
                     linear_solver=MadNLPGPU.CUDSSSolver,
                     cudss_algorithm=MadNLP.LDL,
+                    regularization=MadIPM.FixedRegularization(1e-8, -1e-8),
                     print_level=MadNLP.INFO,
                     rethrow_error=true,
                 )
