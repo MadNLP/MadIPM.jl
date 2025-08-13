@@ -1,4 +1,4 @@
-# Adapted from NLPModelJuMP
+# Adapted from NLPModelsJuMP
 #
 import QuadraticModels: SparseMatrixCOO
 
