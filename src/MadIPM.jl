@@ -16,4 +16,7 @@ include("KKT/normalkkt.jl")
 include("linear_solver.jl")
 include("solver.jl")
 
+# This is needed for MOI interface
+global Optimizer
+
 end # module MadIPM
