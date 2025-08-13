@@ -1,4 +1,6 @@
 using Test
+
+using MathOptInterface
 using MadNLP
 using MadIPM
 using MadNLPTests
@@ -193,6 +195,10 @@ end
         @test sol.constraints ≈ sol_ref.constraints atol=1e-6
         @test sol.multipliers ≈ sol_ref.multipliers atol=1e-6
     end
+end
+
+@testset "MathOptInterface" begin
+    include("MOI_wrapper.jl")
 end
 
 if CUDA.functional()

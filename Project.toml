@@ -16,9 +16,11 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 MadNLPGPU = "d72a61cc-809d-412f-99be-fd81f4b8a598"
+MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
 
 [extensions]
-MadIPMCUDA = ["CUDA", "KernelAbstractions", "MadNLPGPU"]
+MadIPMCUDAExt = ["CUDA", "KernelAbstractions", "MadNLPGPU"]
+MadIPMMathOptInterfaceExt = "MathOptInterface"
 
 [compat]
 CUDA = "5.4.0"
@@ -40,4 +42,4 @@ MadNLPTests = "b52a2a03-04ab-4a5f-9698-6a2deff93217"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["CUDA", "KernelAbstractions", "MadNLPTests", "MadNLPGPU", "Test"]
+test = ["CUDA", "KernelAbstractions", "MadNLPTests", "MadNLPGPU", "MathOptInterface", "Test"]

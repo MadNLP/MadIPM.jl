@@ -255,6 +255,7 @@ end
 # Predictor-corrector method
 function mpc!(solver::MadNLP.AbstractMadNLPSolver)
     nlb, nub = length(solver.ind_lb), length(solver.ind_ub)
+    best_complementarity = Inf
 
     while true
         # A' y
@@ -272,14 +273,21 @@ function mpc!(solver::MadNLP.AbstractMadNLPSolver)
             1.0,
         ) / max(1.0, solver.norm_c)
         solver.inf_compl = get_optimality_gap(solver) / max(1.0, solver.norm_c)
+        best_complementarity = min(best_complementarity, solver.inf_compl)
 
         MadNLP.print_iter(solver)
 
         #####
         # Termination criteria
         #####
+        dobj = dual_objective(solver) # dual objective
         if max(solver.inf_pr, solver.inf_du, solver.inf_compl) <= solver.opt.tol
             return MadNLP.SOLVE_SUCCEEDED
+        elseif ((solver.inf_compl > solver.opt.divergence_tol * best_complementarity) &&
+                (dobj > max(10.0 * abs(solver.obj_val), 1.0)))
+            return MadNLP.INFEASIBLE_PROBLEM_DETECTED
+        elseif solver.obj_val < - solver.opt.divergence_tol * max(10.0, abs(dobj), 1.0)
+            return MadNLP.DIVERGING_ITERATES
         elseif solver.cnt.k >= solver.opt.max_iter
             return MadNLP.MAXIMUM_ITERATIONS_EXCEEDED
         elseif time()-solver.cnt.start_time >= solver.opt.max_wall_time
@@ -361,8 +369,8 @@ function solve!(
     end
 
     try
-        MadNLP.@notice(solver.logger,"This is MadLP, running with $(MadNLP.introduce(solver.kkt.linear_solver))\n")
-        MadNLP.print_init(solver)
+        MadNLP.@notice(solver.logger,"This is MadIPM, running with $(MadNLP.introduce(solver.kkt.linear_solver))\n")
+        # MadNLP.print_init(solver)
         initialize!(solver)
         solver.status = mpc!(solver)
     catch e
@@ -400,7 +408,7 @@ function solve!(
         MadNLP.@notice(solver.logger,"EXIT: $(MadNLP.get_status_output(solver.status, solver.opt))")
         finalize(solver.logger)
 
-        MadNLP.update!(stats,solver)
+        update_solution!(stats, solver)
     end
 
     return stats
