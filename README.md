@@ -10,7 +10,8 @@ The package is currently not registered, but you can install it using:
 
 ```julia
 
-julia> ] add https://github.com/MadNLP/MadIPM.jl
+julia> ]
+pkg> add https://github.com/MadNLP/MadIPM.jl
 
 ```
 
@@ -18,7 +19,7 @@ julia> ] add https://github.com/MadNLP/MadIPM.jl
 
 ### JuMP
 
-MadIPM supports the JuMP ecosystem.
+MadIPM supports JuMP models with an extension for `MathOptInterface.jl`.
 For instance, you can solve any LP formulated with JuMP by using:
 
 ```julia
@@ -77,7 +78,7 @@ using MadIPM
 qp_gpu = convert(QuadraticModel{Float64, CuVector{Float64}}, qp)
 
 ```
-Then, you can pass the structure `qp_gpu` to MadIPM by switching
+Then, you can pass the problem `qp_gpu` to MadIPM by switching
 the linear solver to NVIDIA cuDSS:
 ```julia
 solver = MadIPM.MPCSolver(
