@@ -25,7 +25,7 @@ include("parse_moi.jl")
 include("MOI_wrapper.jl")
 
 function __init__()
-    setglobal!(MadIPM, :Optimizer, Optimizer)
+    @eval MadIPM const Optimizer = $Optimizer
 end
 
 end
