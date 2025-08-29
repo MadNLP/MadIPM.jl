@@ -1,4 +1,4 @@
-module MadIPMCUDA
+module MadIPMCUDAExt
 
 using LinearAlgebra
 using SparseArrays

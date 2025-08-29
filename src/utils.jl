@@ -78,6 +78,7 @@ end
     # Termination options
     max_iter::Int = 3000
     max_wall_time::Float64 = 1e6
+    divergence_tol::Float64 = 1e4
     kappa_d::Float64 = 1e-5
     fixed_variable_treatment::Type = kkt_system <: MadNLP.SparseCondensedKKTSystem ? MadNLP.RelaxBound : MadNLP.MakeParameter
     equality_treatment::Type = kkt_system <: MadNLP.SparseCondensedKKTSystem ? MadNLP.RelaxEquality : MadNLP.EnforceEquality
@@ -144,6 +145,14 @@ function load_options(nlp; options...)
         linear_solver=opt_linear_solver,
         logger=logger,
     )
+end
+
+function update_solution!(stats::MadNLP.MadNLPExecutionStats{T}, solver) where T
+    MadNLP.update!(stats,solver)
+    if !NLPModels.get_minimize(solver.nlp)
+        stats.objective *= -one(T)
+    end
+    return
 end
 
 function coo_to_csr(
