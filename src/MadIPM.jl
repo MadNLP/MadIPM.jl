@@ -16,4 +16,6 @@ include("KKT/normalkkt.jl")
 include("linear_solver.jl")
 include("solver.jl")
 
+export MadIPMSolver, madipm
+
 end # module MadIPM

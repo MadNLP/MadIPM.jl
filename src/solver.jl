@@ -406,3 +406,12 @@ function solve!(
     return stats
 end
 
+"""
+    madipm(m; kwargs...)
+
+Solve the model `m` using the MadIPM solver.
+"""
+function madipm(m; kwargs...)
+    solver = MadIPM.MPCSolver(m; kwargs...)
+    return MadIPM.solve!(solver)
+end
