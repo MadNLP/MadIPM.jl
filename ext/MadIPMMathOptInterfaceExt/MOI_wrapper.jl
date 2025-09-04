@@ -30,7 +30,7 @@ end
 ###
 
 function MOI.set(optimizer::Optimizer, param::MOI.RawOptimizerAttribute, value)
-    if param.value == "array_type"
+    if param.name == "array_type"
         optimizer.array_type = value
     else
         optimizer.options[param.name] = value
