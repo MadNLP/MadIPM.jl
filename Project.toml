@@ -1,7 +1,7 @@
 name = "MadIPM"
 uuid = "4406d55e-1099-4ca6-ac6a-6cf051b10024"
 authors = ["François Pacaud <francoispacaud8@gmail.com>", "Alexis Montoison <amontoison@anl.gov>"]
-version = "0.2.0"
+version = "0.1.0"
 
 [deps]
 LDLFactorizations = "40e66cde-538c-5869-a4ad-c39174c6795b"
@@ -27,8 +27,8 @@ CUDA = "5.4.0 - 5.8.2"
 KernelAbstractions = "0.9"
 LDLFactorizations = "0.10.1"
 LinearAlgebra = "1.10"
-MadNLP = "0.8.9"
-MadNLPGPU = "0.7.12"
+MadNLP = "0.8.10"
+MadNLPGPU = "0.7.13"
 MadNLPTests = "0.5"
 MathOptInterface = "1.42"
 NLPModels = "0.21.5"
