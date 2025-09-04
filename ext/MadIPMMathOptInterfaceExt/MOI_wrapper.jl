@@ -4,12 +4,13 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     silent::Bool
     solver::Union{Nothing, MadIPM.MPCSolver}
     qp::Union{Nothing, QuadraticModel}
+    array_type::Type{<:AbstractVector{Float64}}
     stats::Union{
         Nothing,
-        MadNLP.MadNLPExecutionStats{Float64, Vector{Float64}},
+        MadNLP.MadNLPExecutionStats{Float64, <:AbstractVector{Float64}},
     }
     function Optimizer()
-        return new(Dict{String, Any}(), false, nothing, nothing, nothing)
+        return new(Dict{String, Any}(), false, nothing, nothing, Vector{Float64}, nothing)
     end
 end
 
@@ -29,7 +30,12 @@ end
 ###
 
 function MOI.set(optimizer::Optimizer, param::MOI.RawOptimizerAttribute, value)
-    return optimizer.options[param.name] = value
+    if param.value == "array_type"
+        optimizer.array_type = value
+    else
+        optimizer.options[param.name] = value
+    end
+    return
 end
 
 function MOI.get(optimizer::Optimizer, param::MOI.RawOptimizerAttribute)
@@ -82,8 +88,8 @@ MOI.supports_constraint(::Optimizer, ::Type{VAF}, ::Type{<:VLS}) = true
 
 function MOI.copy_to(dest::Optimizer, src::MOI.ModelLike)
     dest.qp, index_map = qp_model(src)
-    if haskey(dest.options, "array_type")
-        VT = dest.options["array_type"]
+    if dest.array_type != Vector{Float64}
+        VT = dest.array_type
         T = eltype(VT)
         dest.qp = convert(QuadraticModel{T, VT}, dest.qp)
     end
