@@ -46,10 +46,7 @@ using MadIPM
 
 qpdat = readqps("mylp.mps")
 qp = QuadraticModel(qpdat)
-
-solver = MadIPM.MPCSolver(qp)
-results = MadIPM.solve!(solver)
-
+results = madipm(qp)
 ```
 
 ### Custom usage
@@ -57,12 +54,11 @@ results = MadIPM.solve!(solver)
 MadIPM takes as input any linear program (LP) or quadratic program (QP) represented as an `AbstractNLPModel`,
 following the specification in [NLPModels.jl](https://github.com/JuliaSmoothOptimizers/NLPModels.jl/).
 
-For any `qp <: AbstractNLPModel`, you can pass it to MadIPM using:
+For any `qp <: AbstractNLPModel`, you can pass it to MadIPM either directly with `madipm(qp)`, or in two steps as follows:
 
 ```julia
-solver = MadIPM.MPCSolver(qp)
+solver = MPCSolver(qp)
 results = MadIPM.solve!(solver)
-
 ```
 
 ## Solving a LP with CUDA
@@ -76,18 +72,29 @@ using CUDA, KernelAbstractions, MadNLPGPU
 using MadIPM
 
 qp_gpu = convert(QuadraticModel{Float64, CuVector{Float64}}, qp)
-
 ```
 Then, you can pass the problem `qp_gpu` to MadIPM by switching
 the linear solver to NVIDIA cuDSS:
 ```julia
-solver = MadIPM.MPCSolver(
-    qp_gpu;
-    linear_solver=MadNLPGPU.CUDSSSolver,
-)
+solver = MPCSolver(qp_gpu; linear_solver=MadNLPGPU.CUDSSSolver)
 results = MadIPM.solve!(solver)
-
 ```
 As a result, all the solution happens on the GPU, with minimum data transfer
 between the host and the device.
 
+If you have a JUMP model, just set the array type for CUDA arrays:
+```julia
+using JuMP
+using MadIPM
+using CUDA, KernelAbstractions, MadNLPGPU
+
+c = rand(10)
+model = Model(MadIPM.Optimizer)
+set_optimizer_attribute(model, "array_type", CuVector{Float64})
+
+@variable(model, 0 <= x[1:10], start=0.5)
+@constraint(model, sum(x) == 1.0)
+@objective(model, Min, c' * x)
+
+JuMP.optimize!(model)
+```

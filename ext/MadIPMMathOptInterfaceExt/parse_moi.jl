@@ -213,4 +213,3 @@ function qp_model(moimodel::MOI.ModelLike)
         data,
     ), index_map
 end
-

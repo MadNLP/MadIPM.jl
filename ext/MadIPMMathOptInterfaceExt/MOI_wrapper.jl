@@ -82,6 +82,11 @@ MOI.supports_constraint(::Optimizer, ::Type{VAF}, ::Type{<:VLS}) = true
 
 function MOI.copy_to(dest::Optimizer, src::MOI.ModelLike)
     dest.qp, index_map = qp_model(src)
+    if haskey(dest.options, "array_type")
+        VT = dest.options["array_type"]
+        T = eltype(VT)
+        dest.qp = convert(QuadraticModel{T, VT}, dest.qp)
+    end
     return index_map
 end
 
