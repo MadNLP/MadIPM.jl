@@ -39,7 +39,6 @@ JuMP.optimize!(model)
 We detail here how to solve a LP stored in a MPS file `mylp.mps` using [QPSReader](https://github.com/JuliaSmoothOptimizers/QPSReader.jl) and [QuadraticModels](https://github.com/JuliaSmoothOptimizers/QuadraticModels.jl).
 
 ```julia
-
 using QPSReader
 using QuadraticModels
 using MadIPM
@@ -91,6 +90,7 @@ using CUDA, KernelAbstractions, MadNLPGPU
 c = rand(10)
 model = Model(MadIPM.Optimizer)
 set_optimizer_attribute(model, "array_type", CuVector{Float64})
+set_optimizer_attribute(model, "linear_solver", MadNLPGPU.CUDSSSolver)
 
 @variable(model, 0 <= x[1:10], start=0.5)
 @constraint(model, sum(x) == 1.0)
