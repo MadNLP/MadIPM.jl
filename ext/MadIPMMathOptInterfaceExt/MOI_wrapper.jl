@@ -1,6 +1,7 @@
 
 mutable struct Optimizer <: MOI.AbstractOptimizer
     options::Dict{String, Any}
+    presolve::Bool
     silent::Bool
     solver::Union{Nothing, MadIPM.MPCSolver}
     qp::Union{Nothing, QuadraticModel}
@@ -10,7 +11,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
         MadNLP.MadNLPExecutionStats{Float64, <:AbstractVector{Float64}},
     }
     function Optimizer()
-        return new(Dict{String, Any}(), false, nothing, nothing, Vector{Float64}, nothing)
+        return new(Dict{String, Any}(), false, false, nothing, nothing, Vector{Float64}, nothing)
     end
 end
 
@@ -32,6 +33,8 @@ end
 function MOI.set(optimizer::Optimizer, param::MOI.RawOptimizerAttribute, value)
     if param.name == "array_type"
         optimizer.array_type = value
+    elseif param.name == "presolve"
+        optimizer.presolve = value
     else
         optimizer.options[param.name] = value
     end
@@ -88,6 +91,9 @@ MOI.supports_constraint(::Optimizer, ::Type{VAF}, ::Type{<:VLS}) = true
 
 function MOI.copy_to(dest::Optimizer, src::MOI.ModelLike)
     dest.qp, index_map = qp_model(src)
+    if dest.presolve
+        dest.qp, flag = MadIPM.presolve_qp(dest.qp)
+    end
     if dest.array_type != Vector{Float64}
         VT = dest.array_type
         T = eltype(VT)
