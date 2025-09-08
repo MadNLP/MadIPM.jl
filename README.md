@@ -9,10 +9,8 @@ and supports the solution of large-scale linear programs on the GPU using NVIDIA
 The package is currently not registered, but you can install it using:
 
 ```julia
-
 julia> ]
-pkg> add https://github.com/MadNLP/MadIPM.jl
-
+pkg> add MadIPM
 ```
 
 ## Basic usage
