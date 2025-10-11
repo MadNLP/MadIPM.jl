@@ -90,7 +90,7 @@ end
     CuSparseMatrixCOO
 =#
 
-function CuSparseMatrixCOO(A::SparseMatrixCOO{Tv, Ti}) where {Tv, Ti}
+function CUSPARSE.CuSparseMatrixCOO(A::SparseMatrixCOO{Tv, Ti}) where {Tv, Ti}
     return CUSPARSE.CuSparseMatrixCOO{Tv, Ti}(
         CuVector(A.rows),
         CuVector(A.cols),
@@ -104,7 +104,7 @@ end
     CuSparseMatrixCSR
 =#
 
-function CuSparseMatrixCSR(A::SparseMatrixCOO{Tv, Ti}) where {Tv, Ti}
+function CUSPARSE.CuSparseMatrixCSR(A::SparseMatrixCOO{Tv, Ti}) where {Tv, Ti}
     m, n = size(A)
     Ap, Ai, Ax = MadIPM.coo_to_csr(m, n, A.rows, A.cols, A.vals)
     return CUSPARSE.CuSparseMatrixCSR{Tv, Ti}(
