@@ -308,8 +308,8 @@ end
 function apply_step!(solver::MadNLP.AbstractMadNLPSolver)
     axpy!(solver.alpha_p, MadNLP.primal(solver.d), MadNLP.primal(solver.x))
     axpy!(solver.alpha_d, MadNLP.dual(solver.d), solver.y)
-    axpy!(solver.alpha_d, MadNLP.dual_lb(solver.d), solver.zl_r)
-    axpy!(solver.alpha_d, MadNLP.dual_ub(solver.d), solver.zu_r)
+    solver.zl_r .+= solver.alpha_d .* MadNLP.dual_lb(solver.d)
+    solver.zu_r .+= solver.alpha_d .* MadNLP.dual_ub(solver.d)
     MadNLP.adjust_boundary!(solver.x_lr,solver.xl_r,solver.x_ur,solver.xu_r,solver.mu)
 
     solver.cnt.k += 1
