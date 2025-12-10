@@ -163,7 +163,10 @@ function initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
     init_regularization!(solver, solver.opt.regularization)
 
     # Initializing callbacks
+    solver.obj_val = MadNLP.eval_f_wrapper(solver, solver.x)
     MadNLP.eval_jac_wrapper!(solver, solver.kkt, solver.x)
+    MadNLP.eval_grad_f_wrapper!(solver, solver.f, solver.x)
+    MadNLP.eval_cons_wrapper!(solver, solver.c, solver.x)
     MadNLP.eval_lag_hess_wrapper!(solver, solver.kkt, solver.x, solver.y)
 
     # Normalization factors
