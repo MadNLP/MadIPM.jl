@@ -28,7 +28,6 @@ mutable struct MPCSolver{
     xu::MadNLP.PrimalVector{T, VT, VI} # primal upper bound (after reformulation)
 
     obj_val::T
-    dobj_val::T
     f::MadNLP.PrimalVector{T, VT, VI}
     c::VT
 
@@ -164,7 +163,7 @@ function MPCSolver(nlp::NLPModels.AbstractNLPModel{T,VT}; kwargs...) where {T, V
         ipm_opt, cnt, options.logger,
         n, m, nlb, nub,
         x, y, zl, zu, xl, xu,
-        zero(T), zero(T), f, c,
+        zero(T), f, c,
         jacl,
         d, p,
         _w1, _w2,
