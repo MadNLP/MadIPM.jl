@@ -301,7 +301,7 @@ function factorize_system!(solver)
     factorize_regularized_system!(solver)
     return
 end
-function update_step!(solver)
+function update_step_size!(solver)
     update_step!(solver.opt.step_rule, solver)
     return
 end
@@ -349,7 +349,7 @@ function mpc!(solver::MadNLP.AbstractMadNLPSolver)
         gondzio_correction_direction!(solver)
 
         # Update step size
-        update_step!(solver)
+        update_step_size!(solver)
 
         # Apply step
         apply_step!(solver)
