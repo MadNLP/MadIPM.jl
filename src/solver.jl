@@ -183,22 +183,16 @@ function initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
     solver.best_complementarity = typemax(typeof(solver.best_complementarity))
 
     solver.status = MadNLP.REGULAR
+
+    MadNLP.jtprod!(solver.jacl, solver.kkt, solver.y)
     return
 end
 
 #=
     MPC Algorithm
 =#
-function evaluate_model!(solver::MadNLP.AbstractMadNLPSolver)
-    solver.obj_val = MadNLP.eval_f_wrapper(solver, solver.x)
+function update_termination_criteria!(solver::MadNLP.AbstractMadNLPSolver)
     solver.dobj_val = dual_objective(solver) # dual objective
-    MadNLP.eval_cons_wrapper!(solver, solver.c, solver.x)
-    MadNLP.eval_grad_f_wrapper!(solver, solver.f, solver.x)
-
-    # A' y
-    MadNLP.jtprod!(solver.jacl, solver.kkt, solver.y)
-    
-    # Update info
     solver.inf_pr = MadNLP.get_inf_pr(solver.c) / max(1.0, solver.norm_b)
     solver.inf_du = MadNLP.get_inf_du(
         MadNLP.full(solver.f),
@@ -210,10 +204,6 @@ function evaluate_model!(solver::MadNLP.AbstractMadNLPSolver)
     solver.inf_compl = get_optimality_gap(solver) / max(1.0, solver.norm_c)
     solver.best_complementarity = min(solver.best_complementarity, solver.inf_compl)
     
-    return
-end
-
-function check_termination_criteria!(solver::MadNLP.AbstractMadNLPSolver)
     if max(solver.inf_pr, solver.inf_du, solver.inf_compl) <= solver.opt.tol
         solver.status = MadNLP.SOLVE_SUCCEEDED
     elseif ((solver.inf_compl > solver.opt.divergence_tol * solver.best_complementarity) &&
@@ -328,7 +318,17 @@ function apply_step!(solver::MadNLP.AbstractMadNLPSolver)
     axpy!(solver.alpha_d, MadNLP.dual_lb(solver.d), solver.zl_r)
     axpy!(solver.alpha_d, MadNLP.dual_ub(solver.d), solver.zu_r)
     MadNLP.adjust_boundary!(solver.x_lr,solver.xl_r,solver.x_ur,solver.xu_r,solver.mu)
+
     solver.cnt.k += 1
+    return
+end
+
+function evaluate_model!(solver::MadNLP.AbstractMadNLPSolver)
+    solver.obj_val = MadNLP.eval_f_wrapper(solver, solver.x)
+    MadNLP.eval_cons_wrapper!(solver, solver.c, solver.x)
+    MadNLP.eval_grad_f_wrapper!(solver, solver.f, solver.x)
+    # A' y
+    MadNLP.jtprod!(solver.jacl, solver.kkt, solver.y)
     return
 end
 function is_done(solver)
@@ -338,12 +338,9 @@ end
 # Predictor-corrector method
 function mpc!(solver::MadNLP.AbstractMadNLPSolver)
     while true
-        # Evaluate model at new iterate
-        evaluate_model!(solver)
-
         # Check termination criteria
         MadNLP.print_iter(solver)
-        check_termination_criteria!(solver)
+        update_termination_criteria!(solver)
         is_done(solver) && return
 
         # Factorize KKT system
@@ -366,6 +363,9 @@ function mpc!(solver::MadNLP.AbstractMadNLPSolver)
 
         # Apply step
         apply_step!(solver)
+
+        # Evaluate model at new iterate
+        evaluate_model!(solver)
     end
 end
 
