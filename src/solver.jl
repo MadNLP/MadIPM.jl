@@ -230,8 +230,9 @@ end
 function prediction_step!(solver::MadNLP.AbstractMadNLPSolver)
     affine_direction!(solver)
     alpha_aff_p, alpha_aff_d = get_fraction_to_boundary_step(solver, 1.0)
-    solver.mu_affine = get_affine_complementarity_measure(solver, alpha_aff_p, alpha_aff_d)
+    mu_affine = get_affine_complementarity_measure(solver, alpha_aff_p, alpha_aff_d)
     get_correction!(solver, solver.correction_lb, solver.correction_ub)
+    solver.mu_curr = update_barrier!(solver.opt.barrier_update, solver, mu_affine)
     return
 end
 
@@ -300,10 +301,6 @@ function factorize_system!(solver)
     factorize_regularized_system!(solver)
     return
 end
-function update_barrier!(solver)
-    solver.mu_curr = update_barrier!(solver.opt.barrier_update, solver, solver.mu_affine)
-    return
-end
 function update_step!(solver)
     update_step!(solver.opt.step_rule, solver)
     return
@@ -344,9 +341,6 @@ function mpc!(solver::MadNLP.AbstractMadNLPSolver)
 
         # Prediction step
         prediction_step!(solver)
-
-        # Update barrier
-        update_barrier!(solver)
 
         # Mehrotra's Correction step
         mehrotra_correction_direction!(solver)
