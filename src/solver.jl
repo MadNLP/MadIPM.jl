@@ -221,10 +221,6 @@ function update_termination_criteria!(solver::MadNLP.AbstractMadNLPSolver)
     return
 end
 
-function get_correction!(solver::MadNLP.AbstractMadNLPSolver)
-    get_correction!(solver, solver.correction_lb, solver.correction_ub)
-    return
-end
 function affine_direction!(solver::MadNLP.AbstractMadNLPSolver)
     set_predictive_rhs!(solver, solver.kkt)
     solve_system!(solver.d, solver, solver.p)
@@ -235,7 +231,7 @@ function prediction_step!(solver::MadNLP.AbstractMadNLPSolver)
     affine_direction!(solver)
     alpha_aff_p, alpha_aff_d = get_fraction_to_boundary_step(solver, 1.0)
     solver.mu_affine = get_affine_complementarity_measure(solver, alpha_aff_p, alpha_aff_d)
-    get_correction!(solver)
+    get_correction!(solver, solver.correction_lb, solver.correction_ub)
     return
 end
 
