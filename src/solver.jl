@@ -190,8 +190,6 @@ end
     MPC Algorithm
 =#
 function evaluate_model!(solver::MadNLP.AbstractMadNLPSolver)
-    solver.cnt.k += 1
-
     solver.obj_val = MadNLP.eval_f_wrapper(solver, solver.x)
     solver.dobj_val = dual_objective(solver) # dual objective
     MadNLP.eval_cons_wrapper!(solver, solver.c, solver.x)
@@ -330,6 +328,7 @@ function apply_step!(solver::MadNLP.AbstractMadNLPSolver)
     axpy!(solver.alpha_d, MadNLP.dual_lb(solver.d), solver.zl_r)
     axpy!(solver.alpha_d, MadNLP.dual_ub(solver.d), solver.zu_r)
     MadNLP.adjust_boundary!(solver.x_lr,solver.xl_r,solver.x_ur,solver.xu_r,solver.mu)
+    solver.cnt.k += 1
     return
 end
 function is_done(solver)
