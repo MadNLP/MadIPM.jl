@@ -28,6 +28,7 @@ mutable struct MPCSolver{
     xu::MadNLP.PrimalVector{T, VT, VI} # primal upper bound (after reformulation)
 
     obj_val::T
+    dobj_val::T
     f::MadNLP.PrimalVector{T, VT, VI}
     c::VT
 
@@ -71,6 +72,9 @@ mutable struct MPCSolver{
     alpha_d::T
     del_w::T
     del_c::T
+    best_complementarity::T
+    mu_affine::T
+    mu_curr::T
     status::MadNLP.Status
 end
 
@@ -161,7 +165,7 @@ function MPCSolver(nlp::NLPModels.AbstractNLPModel{T,VT}; kwargs...) where {T, V
         ipm_opt, cnt, options.logger,
         n, m, nlb, nub,
         x, y, zl, zu, xl, xu,
-        zero(T), f, c,
+        zero(T), zero(T), f, c,
         jacl,
         d, p,
         _w1, _w2,
@@ -170,7 +174,7 @@ function MPCSolver(nlp::NLPModels.AbstractNLPModel{T,VT}; kwargs...) where {T, V
         ind_cons.ind_ineq, ind_cons.ind_fixed, ind_cons.ind_llb, ind_cons.ind_uub,
         ind_cons.ind_lb, ind_cons.ind_ub,
         x_lr, x_ur, xl_r, xu_r, zl_r, zu_r, dx_lr, dx_ur,
-        zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T),
+        zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), typemax(T), zero(T), zero(T),
         MadNLP.INITIAL,
     )
 end
