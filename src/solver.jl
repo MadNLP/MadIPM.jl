@@ -258,9 +258,7 @@ function mehrotra_correction_direction!(solver)
 end
 
 function gondzio_correction_direction!(solver)
-    if solver.opt.max_ncorr == 0
-        return
-    end
+    solver.opt.max_ncorr ≤ 0 && return
 
     δ = 0.1
     γ = 0.1
