@@ -46,10 +46,7 @@ function set_correction_rhs!(solver::MadNLP.AbstractMadNLPSolver, kkt::MadNLP.Ab
     pzl = MadNLP.dual_lb(solver.p)
     pzu = MadNLP.dual_ub(solver.p)
 
-    x = MadNLP.primal(solver.x)
     f = MadNLP.primal(solver.f)
-    xl = MadNLP.primal(solver.xl)
-    xu = MadNLP.primal(solver.xu)
     zl = MadNLP.full(solver.zl)
     zu = MadNLP.full(solver.zu)
 
@@ -65,7 +62,6 @@ function get_correction!(
     correction_lb,
     correction_ub,
 )
-    dx = MadNLP.primal(solver.d)
     dlb = MadNLP.dual_lb(solver.d)
     dub = MadNLP.dual_ub(solver.d)
 
@@ -126,12 +122,6 @@ function set_extra_correction!(
 end
 
 function set_aug_diagonal_reg!(kkt::MadNLP.AbstractKKTSystem{T}, solver::MadNLP.AbstractMadNLPSolver{T}) where T
-    x = MadNLP.full(solver.x)
-    xl = MadNLP.full(solver.xl)
-    xu = MadNLP.full(solver.xu)
-    zl = MadNLP.full(solver.zl)
-    zu = MadNLP.full(solver.zu)
-
     fill!(kkt.reg, solver.del_w)
     fill!(kkt.du_diag, solver.del_c)
     kkt.l_diag .= solver.xl_r .- solver.x_lr   # (Xˡ - X)
@@ -147,12 +137,6 @@ end
 
 # Special function for ScaledSparseKKTSystem to ensure coefficients are positive
 function set_aug_diagonal_reg!(kkt::MadNLP.ScaledSparseKKTSystem{T}, solver::MadNLP.AbstractMadNLPSolver{T}) where T
-    x = MadNLP.full(solver.x)
-    xl = MadNLP.full(solver.xl)
-    xu = MadNLP.full(solver.xu)
-    zl = MadNLP.full(solver.zl)
-    zu = MadNLP.full(solver.zu)
-
     fill!(kkt.reg, solver.del_w)
     fill!(kkt.du_diag, solver.del_c)
     kkt.l_diag .= solver.x_lr .- solver.xl_r   # (X - Xˡ)
@@ -444,4 +428,3 @@ function get_optimality_gap(solver::MPCSolver)
         1.0,
     )
 end
-

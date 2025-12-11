@@ -180,12 +180,46 @@ function initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
 
     solver.cnt.start_time = time()
 
-    return MadNLP.REGULAR
+    solver.best_complementarity = typemax(typeof(solver.best_complementarity))
+
+    solver.status = MadNLP.REGULAR
+
+    MadNLP.jtprod!(solver.jacl, solver.kkt, solver.y)
+    return
 end
 
 #=
     MPC Algorithm
 =#
+function update_termination_criteria!(solver::MadNLP.AbstractMadNLPSolver)
+    dobj = dual_objective(solver) # dual objective
+    solver.inf_pr = MadNLP.get_inf_pr(solver.c) / max(1.0, solver.norm_b)
+    solver.inf_du = MadNLP.get_inf_du(
+        MadNLP.full(solver.f),
+        MadNLP.full(solver.zl),
+        MadNLP.full(solver.zu),
+        solver.jacl,
+        1.0,
+    ) / max(1.0, solver.norm_c)
+    solver.inf_compl = get_optimality_gap(solver) / max(1.0, solver.norm_c)
+    solver.best_complementarity = min(solver.best_complementarity, solver.inf_compl)
+    
+    if max(solver.inf_pr, solver.inf_du, solver.inf_compl) <= solver.opt.tol
+        solver.status = MadNLP.SOLVE_SUCCEEDED
+    elseif ((solver.inf_compl > solver.opt.divergence_tol * solver.best_complementarity) &&
+            (dobj > max(10.0 * abs(solver.obj_val), 1.0)))
+        solver.status = MadNLP.INFEASIBLE_PROBLEM_DETECTED
+    elseif solver.obj_val < - solver.opt.divergence_tol * max(10.0, abs(dobj), 1.0)
+        solver.status = MadNLP.DIVERGING_ITERATES
+    elseif solver.cnt.k >= solver.opt.max_iter
+        solver.status = MadNLP.MAXIMUM_ITERATIONS_EXCEEDED
+    elseif time()-solver.cnt.start_time >= solver.opt.max_wall_time
+        solver.status = MadNLP.MAXIMUM_WALLTIME_EXCEEDED
+    else
+        # Continue iterating - status remains unchanged
+    end
+    return
+end
 
 function affine_direction!(solver::MadNLP.AbstractMadNLPSolver)
     set_predictive_rhs!(solver, solver.kkt)
@@ -193,13 +227,24 @@ function affine_direction!(solver::MadNLP.AbstractMadNLPSolver)
     return
 end
 
-function mehrotra_correction_direction!(solver, correction_lb, correction_ub)
-    set_correction_rhs!(solver, solver.kkt, solver.mu, correction_lb, correction_ub, solver.ind_lb, solver.ind_ub)
+function prediction_step!(solver::MadNLP.AbstractMadNLPSolver)
+    affine_direction!(solver)
+    alpha_aff_p, alpha_aff_d = get_fraction_to_boundary_step(solver, 1.0)
+    mu_affine = get_affine_complementarity_measure(solver, alpha_aff_p, alpha_aff_d)
+    get_correction!(solver, solver.correction_lb, solver.correction_ub)
+    solver.mu_curr = update_barrier!(solver.opt.barrier_update, solver, mu_affine)
+    return
+end
+
+function mehrotra_correction_direction!(solver)
+    set_correction_rhs!(solver, solver.kkt, solver.mu, solver.correction_lb, solver.correction_ub, solver.ind_lb, solver.ind_ub)
     solve_system!(solver.d, solver, solver.p)
     return
 end
 
-function gondzio_correction_direction!(solver, correction_lb, correction_ub, mu_curr, max_ncorr)
+function gondzio_correction_direction!(solver)
+    solver.opt.max_ncorr ≤ 0 && return
+
     δ = 0.1
     γ = 0.1
     βmin = 0.1
@@ -211,17 +256,17 @@ function gondzio_correction_direction!(solver, correction_lb, correction_ub, mu_
     # TODO: this may be redundant with (alpha_p, alpha_d) computed in Mehrotra correction step.
     alpha_p, alpha_d = get_fraction_to_boundary_step(solver, tau)
 
-    for ncorr in 1:max_ncorr
+    for ncorr in 1:solver.opt.max_ncorr
         # Enlarge step sizes in primal and dual spaces.
         tilde_alpha_p = min(alpha_p + δ, 1.0)
         tilde_alpha_d = min(alpha_d + δ, 1.0)
         # Apply Mehrotra's heuristic for centering parameter mu.
         ga = get_affine_complementarity_measure(solver, tilde_alpha_p, tilde_alpha_d)
-        g = mu_curr
+        g = solver.mu_curr
         mu = (ga / g)^2 * ga  # Eq. (12)
         # Add additional correction.
         set_extra_correction!(
-            solver, correction_lb, correction_ub,
+            solver, solver.correction_lb, solver.correction_ub,
             tilde_alpha_p, tilde_alpha_d, βmin, βmax, mu,
         )
         # Update RHS.
@@ -229,8 +274,8 @@ function gondzio_correction_direction!(solver, correction_lb, correction_ub, mu_
             solver,
             solver.kkt,
             mu,
-            correction_lb,
-            correction_ub,
+            solver.correction_lb,
+            solver.correction_ub,
             solver.ind_lb,
             solver.ind_ub,
         )
@@ -251,108 +296,66 @@ function gondzio_correction_direction!(solver, correction_lb, correction_ub, mu_
 
     return alpha_p, alpha_d
 end
+function factorize_system!(solver)
+    update_regularization!(solver, solver.opt.regularization)
+    factorize_regularized_system!(solver)
+    return
+end
+function update_step_size!(solver)
+    update_step!(solver.opt.step_rule, solver)
+    return
+end
+function apply_step!(solver::MadNLP.AbstractMadNLPSolver)
+    axpy!(solver.alpha_p, MadNLP.primal(solver.d), MadNLP.primal(solver.x))
+    axpy!(solver.alpha_d, MadNLP.dual(solver.d), solver.y)
+    solver.zl_r .+= solver.alpha_d .* MadNLP.dual_lb(solver.d)
+    solver.zu_r .+= solver.alpha_d .* MadNLP.dual_ub(solver.d)
+    MadNLP.adjust_boundary!(solver.x_lr,solver.xl_r,solver.x_ur,solver.xu_r,solver.mu)
+
+    solver.cnt.k += 1
+    return
+end
+
+function evaluate_model!(solver::MadNLP.AbstractMadNLPSolver)
+    solver.obj_val = MadNLP.eval_f_wrapper(solver, solver.x)
+    MadNLP.eval_cons_wrapper!(solver, solver.c, solver.x)
+    MadNLP.eval_grad_f_wrapper!(solver, solver.f, solver.x)
+    # A' y
+    MadNLP.jtprod!(solver.jacl, solver.kkt, solver.y)
+    return
+end
+function is_done(solver)
+    return solver.status != MadNLP.REGULAR
+end
 
 # Predictor-corrector method
 function mpc!(solver::MadNLP.AbstractMadNLPSolver)
-    nlb, nub = length(solver.ind_lb), length(solver.ind_ub)
-    best_complementarity = Inf
-
     while true
-        # A' y
-        MadNLP.jtprod!(solver.jacl, solver.kkt, solver.y)
-
-        #####
-        # Update info
-        #####
-        solver.inf_pr = MadNLP.get_inf_pr(solver.c) / max(1.0, solver.norm_b)
-        solver.inf_du = MadNLP.get_inf_du(
-            MadNLP.full(solver.f),
-            MadNLP.full(solver.zl),
-            MadNLP.full(solver.zu),
-            solver.jacl,
-            1.0,
-        ) / max(1.0, solver.norm_c)
-        solver.inf_compl = get_optimality_gap(solver) / max(1.0, solver.norm_c)
-        best_complementarity = min(best_complementarity, solver.inf_compl)
-
+        # Check termination criteria
         MadNLP.print_iter(solver)
+        update_termination_criteria!(solver)
+        is_done(solver) && return
 
-        #####
-        # Termination criteria
-        #####
-        dobj = dual_objective(solver) # dual objective
-        if max(solver.inf_pr, solver.inf_du, solver.inf_compl) <= solver.opt.tol
-            return MadNLP.SOLVE_SUCCEEDED
-        elseif ((solver.inf_compl > solver.opt.divergence_tol * best_complementarity) &&
-                (dobj > max(10.0 * abs(solver.obj_val), 1.0)))
-            return MadNLP.INFEASIBLE_PROBLEM_DETECTED
-        elseif solver.obj_val < - solver.opt.divergence_tol * max(10.0, abs(dobj), 1.0)
-            return MadNLP.DIVERGING_ITERATES
-        elseif solver.cnt.k >= solver.opt.max_iter
-            return MadNLP.MAXIMUM_ITERATIONS_EXCEEDED
-        elseif time()-solver.cnt.start_time >= solver.opt.max_wall_time
-            return MadNLP.MAXIMUM_WALLTIME_EXCEEDED
-        end
-
-        #####
         # Factorize KKT system
-        #####
-        update_regularization!(solver, solver.opt.regularization)
-        factorize_regularized_system!(solver)
+        factorize_system!(solver)
 
-        #####
         # Prediction step
-        #####
-        affine_direction!(solver)
-        alpha_aff_p, alpha_aff_d = get_fraction_to_boundary_step(solver, 1.0)
-        mu_affine = get_affine_complementarity_measure(solver, alpha_aff_p, alpha_aff_d)
-        get_correction!(solver, solver.correction_lb, solver.correction_ub)
+        prediction_step!(solver)
 
-        #####
-        # Update barrier
-        #####
-        mu_curr = update_barrier!(solver.opt.barrier_update, solver, mu_affine)
-
-        #####
         # Mehrotra's Correction step
-        #####
-        mehrotra_correction_direction!(
-            solver,
-            solver.correction_lb,
-            solver.correction_ub,
-        )
+        mehrotra_correction_direction!(solver)
 
-        #####
         # Gondzio's additional correction
-        #####
-        if solver.opt.max_ncorr > 0
-            alpha_p, alpha_d = gondzio_correction_direction!(
-                solver,
-                solver.correction_lb,
-                solver.correction_ub,
-                mu_curr,
-                solver.opt.max_ncorr,
-            )
-        end
+        gondzio_correction_direction!(solver)
 
-        #####
-        # Next trial point
-        #####
-        update_step!(solver.opt.step_rule, solver)
+        # Update step size
+        update_step_size!(solver)
 
-        # Update primal-dual solution
-        axpy!(solver.alpha_p, MadNLP.primal(solver.d), MadNLP.primal(solver.x))
-        axpy!(solver.alpha_d, MadNLP.dual(solver.d), solver.y)
-        solver.zl_r .+= solver.alpha_d .* MadNLP.dual_lb(solver.d)
-        solver.zu_r .+= solver.alpha_d .* MadNLP.dual_ub(solver.d)
+        # Apply step
+        apply_step!(solver)
 
-        # Update callbacks
-        solver.obj_val = MadNLP.eval_f_wrapper(solver, solver.x)
-        MadNLP.eval_cons_wrapper!(solver, solver.c, solver.x)
-        MadNLP.eval_grad_f_wrapper!(solver, solver.f, solver.x)
-
-        MadNLP.adjust_boundary!(solver.x_lr,solver.xl_r,solver.x_ur,solver.xu_r,solver.mu)
-        solver.cnt.k += 1
+        # Evaluate model at new iterate
+        evaluate_model!(solver)
     end
 end
 
@@ -372,7 +375,7 @@ function solve!(
         MadNLP.@notice(solver.logger,"This is MadIPM, running with $(MadNLP.introduce(solver.kkt.linear_solver))\n")
         # MadNLP.print_init(solver)
         initialize!(solver)
-        solver.status = mpc!(solver)
+        mpc!(solver)
     catch e
         if e isa MadNLP.InvalidNumberException
             if e.callback == :obj

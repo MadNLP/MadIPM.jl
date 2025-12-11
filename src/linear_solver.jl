@@ -31,7 +31,6 @@ function solve_system!(
     mul!(w, solver.kkt, d, -one(T), one(T))
     norm_w = norm(MadNLP.full(w), Inf)
     norm_p = norm(MadNLP.full(p), Inf)
-    norm_d = norm(MadNLP.full(d), Inf)
 
     residual_ratio = norm_w / max(one(T), norm_p)
     MadNLP.@debug(
