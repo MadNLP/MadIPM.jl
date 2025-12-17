@@ -1,5 +1,65 @@
 abstract type AbstractBatchKKTSystem{KKTSystem,LS} end
+"""
+    UniformBatchKKTSystem{KKTSystem, LS, T, VT, VI} <: AbstractBatchKKTSystem{KKTSystem,LS}
 
+Batch wrapper for a set of sparse KKT systems that share the same sparsity pattern,
+enabling uniform-batch factorization and solves with a single `linear_solver`
+(e.g. a `MadNLPGPU.CUDSSSolver` in uniform batch mode).
+
+`UniformBatchKKTSystem` owns:
+- the collection of individual KKT systems,
+- a pool of unreduced KKT vectors,
+- contiguous storage for all right-hand sides and nonzero values in the batch,
+- and bookkeeping to track which systems are currently active in the batch.
+
+It assumes all KKT systems in `kkts` have identical `aug_com.colPtr` and
+`aug_com.rowVal`, so that only their `nzVal` and RHS differ across the batch.
+
+# Fields
+- `kkts::Vector{KKTSystem}`: Collection of individual KKT systems.
+- `vecs::Vector{MadNLP.UnreducedKKTVector{T,VT,VI}}`:
+  Per-system unreduced KKT vectors holding the full primal/dual RHS and solution
+  for each problem. These are the vectors that are packed/unpacked into the
+  batched RHS buffer.
+- `linear_solver::LS`:
+  Shared linear solver instance that operates on the batched KKT data. 
+- `batch_rhs::VT`:
+  Contiguous storage for the right-hand side of *all* systems in the batch.
+- `batch_nzVal::VT`:
+  Contiguous storage for the nonzero values of *all* KKT matrices in the batch,
+  with fixed block size `nzVal_size` per system. Each KKT’s `aug_com.nzVal`
+  is made to point into its corresponding slice of this buffer.
+- `rhs_slices::Vector{VT}`:
+  Views or slices into `batch_rhs`, one per system.
+- `nzVal_slices::Vector{VT}`:
+  Views or slices into `batch_nzVal`, one per system.
+- `rhs_size::Int`:
+  Length of the RHS vector for a single KKT system. Used to compute offsets
+  into `batch_rhs`.
+- `nzVal_size::Int`:
+  Number of nonzero entries in a single KKT matrix. Used to compute offsets
+  into `batch_nzVal`.
+- `batch_map::Vector{Int}`:
+  Maps logical system indices (`1:batch_size`) to positions in the *active*
+  batch. If some systems are inactive, this map is used to compact the batch
+  before calling the linear solver.
+- `batch_map_rev::Vector{Int}`:
+  Reverse map of `batch_map`. Given a position in the active batch, this tells
+  you which original system index it corresponds to.
+- `batch_size::Int`:
+  Total number of KKT systems managed by this batch object (length of `kkts`).
+- `active_batch_size::Base.RefValue{Int}`:
+  Current number of active systems in the batch. This is typically the value
+  passed to the underlying batched linear solver (e.g. `ubatch_size` in CUDSS).
+- `is_active::BitVector`:
+  Boolean mask indicating which systems are currently active (participating) in
+  the batch solve. Inactive systems are skipped when packing `active_rhs` and
+  configuring the solver.
+- `active_rhs::Base.RefValue{VT}`:
+  Reference to the RHS buffer actually passed to the linear solver. This is
+  usually a view into `batch_rhs` that only covers the active systems in
+  compact form, after applying `batch_map`.
+"""
 struct UniformBatchKKTSystem{  # NOTE: move to MadIPM/MadNLP
     KKTSystem<:MadNLP.AbstractSparseKKTSystem, LS, T, VT<:AbstractVector{T}, VI
 } <: AbstractBatchKKTSystem{KKTSystem,LS}
