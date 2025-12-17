@@ -293,8 +293,8 @@ end
 
 update_primal_start!(solver) = axpy!(1.0, MadNLP.primal(solver.d), MadNLP.primal(solver.x))
 update_regularization!(solver) = update_regularization!(solver, solver.opt.regularization)
-set_predictive_rhs!(solver) =  set_predictive_rhs!(solver, solver.kkt)
-set_correction_rhs!(solver) =  set_correction_rhs!(solver, solver.kkt, solver.mu[], solver.correction_lb, solver.correction_ub, solver.ind_lb, solver.ind_ub)
+set_predictive_rhs!(solver) = set_predictive_rhs!(solver, solver.kkt)
+set_correction_rhs!(solver) = set_correction_rhs!(solver, solver.kkt, solver.mu[], solver.correction_lb, solver.correction_ub, solver.ind_lb, solver.ind_ub)
 solve_system!(solver) = solve_system!(solver.d, solver, solver.p)
 
 function update_step_size!(solver)

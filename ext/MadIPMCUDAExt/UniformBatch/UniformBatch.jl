@@ -27,5 +27,4 @@ MadNLP.is_supported(::Type{NoLinearSolver}, ::Type{T}) where {T<:AbstractFloat} 
 
 include("kkt.jl")
 include("structure.jl")
-include("broadcast.jl")
 include("solver.jl")

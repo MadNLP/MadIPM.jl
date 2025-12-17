@@ -3,13 +3,13 @@ abstract type AbstractBatchSolver end
 struct UniformBatchSolver{VS} <: AbstractBatchSolver
     solvers::VS
     bkkt::UniformBatchKKTSystem
-    
+
     function UniformBatchSolver(solvers::Vector{Solver}; linear_solver::Type) where {Solver<:MadIPM.MPCSolver}
         batch_size = length(solvers)
         solver1 = first(solvers)
         kkt1 = solver1.kkt
         vec1 = solver1.d
-    
+
         kkts = Vector{typeof(kkt1)}(undef, batch_size)
         vecs = Vector{typeof(vec1)}(undef, batch_size)
         for i in 1:batch_size
@@ -17,7 +17,7 @@ struct UniformBatchSolver{VS} <: AbstractBatchSolver
             kkts[i] = solver_i.kkt
             vecs[i] = solver_i.d
         end
-    
+
         return new{Vector{Solver}}(solvers, UniformBatchKKTSystem(kkts, vecs, linear_solver))
     end
 end
@@ -38,4 +38,4 @@ update_batch!(batch_solver::UniformBatchSolver) = begin
     end
     needs_update && update_batch!(batch_solver.bkkt)
     return
-end 
+end
