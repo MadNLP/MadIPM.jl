@@ -2,20 +2,15 @@
 #=
     Initialization
 =#
-
-function init_starting_point!(solver::MadNLP.AbstractMadNLPSolver)
-    x = MadNLP.primal(solver.x)
-    l, u = solver.xl.values, solver.xu.values
-    lb, ub = solver.xl_r, solver.xu_r
-    zl, zu = solver.zl_r, solver.zu_r
-    xl, xu = solver.x_lr, solver.x_ur
-    # use jacl as a buffer
-    res = solver.jacl
-
-    # Add initial primal-dual regularization
+function set_initial_regularization!(solver)
     solver.kkt.reg .= solver.del_w
     solver.kkt.pr_diag .= solver.del_w
     solver.kkt.du_diag .= solver.del_c
+end
+function init_starting_point_solve!(solver::MadNLP.AbstractMadNLPSolver)
+    x = MadNLP.primal(solver.x)
+    # Add initial primal-dual regularization
+    set_initial_regularization!(solver)
 
     # Step 0: factorize initial KKT system
     MadNLP.factorize_wrapper!(solver)
@@ -23,13 +18,22 @@ function init_starting_point!(solver::MadNLP.AbstractMadNLPSolver)
     # Step 1: Compute initial primal variable as x0 = x + dx, with dx the
     #         least square solution of the system A * dx = (b - A*x)
     set_initial_primal_rhs!(solver)
-    solve_system!(solver.d, solver, solver.p)
+    solve_system!(solver)
     # x0 = x + dx
-    axpy!(1.0, MadNLP.primal(solver.d), x)
+    update_primal_start!(solver)
 
     # Step 2: Compute initial dual variable as the least square solution of A' * y = -f
     set_initial_dual_rhs!(solver)
-    solve_system!(solver.d, solver, solver.p)
+    solve_system!(solver)
+end
+function post_initialize!(solver)
+    x = MadNLP.primal(solver.x)
+    l, u = solver.xl.values, solver.xu.values
+    lb, ub = solver.xl_r, solver.xu_r
+    zl, zu = solver.zl_r, solver.zu_r
+    xl, xu = solver.x_lr, solver.x_ur
+    # use jacl as a buffer
+    res = solver.jacl
     solver.y .= MadNLP.dual(solver.d)
 
     # Step 3: init bounds multipliers using c + A' * y - zl + zu = 0
@@ -121,10 +125,20 @@ function init_starting_point!(solver::MadNLP.AbstractMadNLPSolver)
     @assert all(solver.zu_r .> 0.0)
     @assert all(solver.x_lr .> solver.xl_r)
     @assert all(solver.x_ur .< solver.xu_r)
+
+    solver.mu = solver.opt.mu_init
+
+    solver.cnt.start_time = time()
+
+    solver.best_complementarity = typemax(typeof(solver.best_complementarity))
+
+    solver.status = MadNLP.REGULAR
+
+    MadNLP.jtprod!(solver.jacl, solver.kkt, solver.y)
     return
 end
 
-function initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
+function pre_initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
     opt = solver.opt
 
     # Ensure the initial point is inside its bounds
@@ -173,19 +187,12 @@ function initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
     solver.norm_b = norm(solver.rhs, Inf)
     solver.norm_c = norm(MadNLP.primal(solver.f), Inf)
 
-    # Find initial position
-    init_starting_point!(solver)
-
-    solver.mu = opt.mu_init
-
-    solver.cnt.start_time = time()
-
-    solver.best_complementarity = typemax(typeof(solver.best_complementarity))
-
-    solver.status = MadNLP.REGULAR
-
-    MadNLP.jtprod!(solver.jacl, solver.kkt, solver.y)
     return
+end
+function initialize!(solver)
+    pre_initialize!(solver)
+    init_starting_point_solve!(solver)
+    post_initialize!(solver)
 end
 
 #=
@@ -221,24 +228,11 @@ function update_termination_criteria!(solver::MadNLP.AbstractMadNLPSolver)
     return
 end
 
-function affine_direction!(solver::MadNLP.AbstractMadNLPSolver)
-    set_predictive_rhs!(solver, solver.kkt)
-    solve_system!(solver.d, solver, solver.p)
-    return
-end
-
-function prediction_step!(solver::MadNLP.AbstractMadNLPSolver)
-    affine_direction!(solver)
+function prediction_step_size!(solver::MadNLP.AbstractMadNLPSolver)
     alpha_aff_p, alpha_aff_d = get_fraction_to_boundary_step(solver, 1.0)
     mu_affine = get_affine_complementarity_measure(solver, alpha_aff_p, alpha_aff_d)
     get_correction!(solver, solver.correction_lb, solver.correction_ub)
     solver.mu_curr = update_barrier!(solver.opt.barrier_update, solver, mu_affine)
-    return
-end
-
-function mehrotra_correction_direction!(solver)
-    set_correction_rhs!(solver, solver.kkt, solver.mu, solver.correction_lb, solver.correction_ub, solver.ind_lb, solver.ind_ub)
-    solve_system!(solver.d, solver, solver.p)
     return
 end
 
@@ -281,7 +275,7 @@ function gondzio_correction_direction!(solver)
         )
         # Solve KKT linear system.
         copyto!(Δp, solver.d.values)
-        solve_system!(solver.d, solver, solver.p)
+        solve_system!(solver)
         hat_alpha_p, hat_alpha_d = get_fraction_to_boundary_step(solver, tau)
 
         # Stop extra correction if the stepsize does not increase sufficiently
@@ -296,11 +290,13 @@ function gondzio_correction_direction!(solver)
 
     return alpha_p, alpha_d
 end
-function factorize_system!(solver)
-    update_regularization!(solver, solver.opt.regularization)
-    factorize_regularized_system!(solver)
-    return
-end
+
+update_primal_start!(solver) = axpy!(1.0, MadNLP.primal(solver.d), MadNLP.primal(solver.x))
+update_regularization!(solver) = update_regularization!(solver, solver.opt.regularization)
+set_predictive_rhs!(solver) =  set_predictive_rhs!(solver, solver.kkt)
+set_correction_rhs!(solver) =  set_correction_rhs!(solver, solver.kkt, solver.mu[], solver.correction_lb, solver.correction_ub, solver.ind_lb, solver.ind_ub)
+solve_system!(solver) = solve_system!(solver.d, solver, solver.p)
+
 function update_step_size!(solver)
     update_step!(solver.opt.step_rule, solver)
     return
@@ -325,7 +321,7 @@ function evaluate_model!(solver::MadNLP.AbstractMadNLPSolver)
     return
 end
 function is_done(solver)
-    return solver.status != MadNLP.REGULAR
+    return solver.status != MadNLP.REGULAR && solver.status != MadNLP.INITIAL
 end
 
 # Predictor-corrector method
@@ -337,13 +333,19 @@ function mpc!(solver::MadNLP.AbstractMadNLPSolver)
         is_done(solver) && return
 
         # Factorize KKT system
-        factorize_system!(solver)
+        update_regularization!(solver)
+        factorize_regularized_system!(solver)
 
-        # Prediction step
-        prediction_step!(solver)
+        # Affine direction
+        set_predictive_rhs!(solver)
+        solve_system!(solver)
+
+        # Prediction step size
+        prediction_step_size!(solver)
 
         # Mehrotra's Correction step
-        mehrotra_correction_direction!(solver)
+        set_correction_rhs!(solver)
+        solve_system!(solver)
 
         # Gondzio's additional correction
         gondzio_correction_direction!(solver)
@@ -359,17 +361,8 @@ function mpc!(solver::MadNLP.AbstractMadNLPSolver)
     end
 end
 
-function solve!(
-    solver::MadNLP.AbstractMadNLPSolver;
-    kwargs...
-)
+function solve!(solver::MadNLP.AbstractMadNLPSolver)
     stats = MadNLP.MadNLPExecutionStats(solver)
-    nlp = solver.nlp
-    solver.cnt.start_time = time()
-
-    if !isempty(kwargs)
-        MadNLP.set_options!(solver.opt, kwargs)
-    end
 
     try
         MadNLP.@notice(solver.logger,"This is MadIPM, running with $(MadNLP.introduce(solver.kkt.linear_solver))\n")
@@ -404,17 +397,20 @@ function solve!(
             solver.opt.rethrow_error && rethrow(e)
         end
     finally
-        solver.cnt.total_time = time() - solver.cnt.start_time
-        if !(solver.status < MadNLP.SOLVE_SUCCEEDED)
-            MadNLP.print_summary(solver)
-        end
-        MadNLP.@notice(solver.logger,"EXIT: $(MadNLP.get_status_output(solver.status, solver.opt))")
-        finalize(solver.logger)
-
-        update_solution!(stats, solver)
+        finalize!(stats, solver)
     end
 
     return stats
+end
+function finalize!(stats, solver)
+    solver.cnt.total_time = time() - solver.cnt.start_time
+    if !(solver.status < MadNLP.SOLVE_SUCCEEDED)
+        MadNLP.print_summary(solver)
+    end
+    MadNLP.@notice(solver.logger,"EXIT: $(MadNLP.get_status_output(solver.status, solver.opt))")
+    finalize(solver.logger)
+
+    update_solution!(stats, solver)
 end
 
 """
