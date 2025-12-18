@@ -133,10 +133,10 @@ function post_initialize!(solver)
 
     solver.status = MadNLP.REGULAR
 
-    MadNLP.jtprod!(solver.jacl, solver.kkt, solver.y)
     return
 end
 
+update_jacl!(solver) = MadNLP.jtprod!(solver.jacl, solver.kkt, solver.y)
 function pre_initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
     opt = solver.opt
 
@@ -192,6 +192,7 @@ function initialize!(solver)
     pre_initialize!(solver)
     init_starting_point_solve!(solver)
     post_initialize!(solver)
+    update_jacl!(solver)
 end
 
 #=
@@ -315,8 +316,7 @@ function evaluate_model!(solver::MadNLP.AbstractMadNLPSolver)
     solver.obj_val = MadNLP.eval_f_wrapper(solver, solver.x)
     MadNLP.eval_cons_wrapper!(solver, solver.c, solver.x)
     MadNLP.eval_grad_f_wrapper!(solver, solver.f, solver.x)
-    # A' y
-    MadNLP.jtprod!(solver.jacl, solver.kkt, solver.y)
+    update_jacl!(solver)
     return
 end
 function is_done(solver)
