@@ -138,7 +138,7 @@ function load_options(nlp; options...)
 
     # Print remaning options (unsupported)
     if !isempty(remaining_options)
-        MadNLP.print_ignored_options(logger, remaining_options)
+        # MadNLP.print_ignored_options(logger, remaining_options)
     end
     return (
         interior_point=opt_ipm,
@@ -503,4 +503,3 @@ function standard_form_qp(qp::QuadraticModels.QuadraticModel)
         data,
     )
 end
-

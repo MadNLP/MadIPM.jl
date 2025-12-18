@@ -110,6 +110,6 @@ end
 
 function MadIPM.madipm(ms::AbstractVector{NLPModel}; kwargs...) where {NLPModel <: NLPModels.AbstractNLPModel}
     solvers = MadIPM.MPCSolver.(ms; linear_solver = NoLinearSolver, kwargs...) # TODO: special constructor to share kkt/cb memory/set NoLinearSolver
-    batch_solver = UniformBatchSolver(solvers, linear_solver = MadNLPGPU.CUDSSSolver)  # TODO: add some detection for the best BatchSolver to use (for now we only have UniformBatchSolver anyway)
+    batch_solver = UniformBatchSolver(solvers; linear_solver = MadNLPGPU.CUDSSSolver, kwargs...)
     return MadIPM.solve!(batch_solver)
 end
