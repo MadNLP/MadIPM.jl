@@ -1,4 +1,5 @@
 abstract type AbstractBatchKKTSystem{KKTSystem,LS} end
+
 """
     UniformBatchKKTSystem{KKTSystem, LS, T, VT, VI} <: AbstractBatchKKTSystem{KKTSystem,LS}
 
@@ -80,7 +81,7 @@ struct UniformBatchKKTSystem{  # NOTE: move to MadIPM/MadNLP
     active_rhs::Base.RefValue{VT}
 end
 
-all_done(bkkt::UniformBatchKKTSystem) = !any(bkkt.is_active)
+all_done(bkkt::UniformBatchKKTSystem) = (bkkt.active_batch_size[] == 0)
 is_active(bkkt::UniformBatchKKTSystem, i) = bkkt.is_active[i]
 
 function UniformBatchKKTSystem(  # NOTE: move to MadNLPGPU

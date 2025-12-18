@@ -99,7 +99,7 @@ function MadIPM.solve!(batch_solver::AbstractBatchSolver)
     catch e
         rethrow(e)  # FIXME
     finally
-        for (stats, solver) in zip(batch_stats, batch_solver.solvers)
+        for (stats, solver) in zip(batch_stats, batch_solver)
             MadIPM.finalize!(stats, solver)
         end
     end

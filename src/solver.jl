@@ -8,7 +8,6 @@ function set_initial_regularization!(solver)
     solver.kkt.du_diag .= solver.del_c
 end
 function init_starting_point_solve!(solver::MadNLP.AbstractMadNLPSolver)
-    x = MadNLP.primal(solver.x)
     # Add initial primal-dual regularization
     set_initial_regularization!(solver)
 
