@@ -21,7 +21,7 @@ jobs:
       matrix:
         julia-version: ['lts', '1']
         julia-arch: [x64]
-        hsl-version: ['2024.11.28']
+        hsl-version: ['2025.7.11']
 
     steps:
       - uses: actions/checkout@v4
