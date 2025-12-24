@@ -6,11 +6,12 @@ and supports the solution of large-scale linear programs on the GPU using NVIDIA
 
 ## Installation
 
-The package is currently not registered, but you can install it using:
+MadIPM can be installed and tested through the Julia package manager:
 
 ```julia
 julia> ]
 pkg> add MadIPM
+pkg> test MadIPM
 ```
 
 ## Basic usage
