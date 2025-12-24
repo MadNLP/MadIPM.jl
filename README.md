@@ -102,7 +102,7 @@ JuMP.optimize!(model)
 If you use MadIPM.jl in your research, we would greatly appreciate your citing it.
 
 ```bibtex
-@article{montoison2025gpu,
+@article{MadIPM,
   title   = {{GPU Implementation of Second-Order Linear and Nonlinear Programming Solvers}},
   author  = {Montoison, Alexis and Pacaud, Fran{\c{c}}ois and Shin, Sungho and Anitescu, Mihai},
   journal = {arXiv preprint arXiv:2508.16094},
