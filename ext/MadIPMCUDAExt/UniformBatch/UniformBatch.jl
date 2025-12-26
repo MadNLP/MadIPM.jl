@@ -17,7 +17,7 @@ post_solve!(solver::MadIPM.MPCSolver{T,VT,VI,KKTSystem}) where {
     MadIPM.check_residual!(solver.d, solver, solver.p)
 end
 
-## dummy solver to make sure batch solve uses batch solver only
+## dummy solver stored inside each KKTSystem in an AbstractBatchKKTSystem
 struct NoLinearSolver{T} <: MadNLP.AbstractLinearSolver{T} end
 NoLinearSolver(A; kwargs...) = NoLinearSolver{Float64}()
 MadNLP.default_options(::Type{NoLinearSolver}) = nothing
