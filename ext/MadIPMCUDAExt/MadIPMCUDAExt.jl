@@ -136,5 +136,6 @@ function Base.convert(::Type{QuadraticModel{T, S}}, qp::QuadraticModel{T}) where
     )
 end
 
-end
+include("UniformBatch/UniformBatch.jl")
 
+end

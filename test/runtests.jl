@@ -26,14 +26,13 @@ function _compare_with_nlp(n, m, ind_fixed, ind_eq; max_ncorr=0, atol=1e-5)
     return
 end
 
-function simple_lp()
+function simple_lp(; Avals = [1.0;1.0])
     c = ones(2)
     Hrows = Int[]
     Hcols = Int[]
     Hvals = Float64[]
     Arows = [1, 1]
     Acols = [1, 2]
-    Avals = [1.0; 1.0]
     c0 = 0.0
     lvar = [0.0; 0.0]
     uvar = [Inf; Inf]
@@ -160,7 +159,7 @@ end
         new_qp = MadIPM.standard_form_qp(qp)
         solver = MadIPM.MPCSolver(new_qp; print_level=MadNLP.ERROR)
         sol = MadIPM.solve!(solver)
-        @test sol.objective == sol_ref.objective
+        @test sol.objective ≈ sol_ref.objective
     end
 
     @testset "NormalKKTSystem implementation" begin

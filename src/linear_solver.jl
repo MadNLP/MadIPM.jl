@@ -3,10 +3,12 @@
     Interface to direct solver for solving KKT system
 =#
 
+MadNLP.build_kkt!(solver::MadIPM.MPCSolver) = MadNLP.build_kkt!(solver.kkt)
+set_aug_diagonal_reg!(solver) = set_aug_diagonal_reg!(solver.kkt, solver)
 function factorize_regularized_system!(solver)
     max_trials = 3
     for ntrial in 1:max_trials
-        set_aug_diagonal_reg!(solver.kkt, solver)
+        set_aug_diagonal_reg!(solver)
         MadNLP.factorize_wrapper!(solver)
         if is_factorized(solver.kkt.linear_solver)
             break
@@ -21,9 +23,14 @@ function solve_system!(
     solver::MadNLP.AbstractMadNLPSolver{T},
     p::MadNLP.UnreducedKKTVector{T},
 ) where T
-    opt = solver.opt
     copyto!(MadNLP.full(d), MadNLP.full(p))
     MadNLP.solve!(solver.kkt, d)
+    post_solve!(d, solver, p)
+    return d
+end
+
+function post_solve!(d::MadNLP.UnreducedKKTVector{T}, solver, p) where T
+    opt = solver.opt
 
     # Check residual
     w = solver._w1
