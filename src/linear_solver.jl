@@ -25,11 +25,11 @@ function solve_system!(
 ) where T
     copyto!(MadNLP.full(d), MadNLP.full(p))
     MadNLP.solve!(solver.kkt, d)
-    post_solve!(d, solver, p)
+    check_residual!(d, solver, p)
     return d
 end
 
-function post_solve!(d::MadNLP.UnreducedKKTVector{T}, solver, p) where T
+function check_residual!(d::MadNLP.UnreducedKKTVector{T}, solver, p) where T
     opt = solver.opt
 
     # Check residual
