@@ -53,7 +53,7 @@ end
     end
 end
 
-@inline function batch_func_withindex(batch_solver::AbstractBatchSolver, func)
+function batch_func_withindex(batch_solver::AbstractBatchSolver, func)
     for i in 1:batch_solver.bkkt.active_batch_size[]
         solver_idx = batch_solver.bkkt.batch_map_rev[i]
         solver = batch_solver[solver_idx]
@@ -61,7 +61,7 @@ end
     end
 end
 
-@inline function for_active_withindex(batch_solver, funcs...)
+function for_active_withindex(batch_solver, funcs...)
     for func in funcs
         batch_func_withindex(batch_solver, func)
     end
