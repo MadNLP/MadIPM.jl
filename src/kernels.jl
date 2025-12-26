@@ -18,7 +18,7 @@ function set_initial_dual_rhs!(solver::MadNLP.AbstractMadNLPSolver)
     return
 end
 
-function set_predictive_rhs!(solver::MadNLP.AbstractMadNLPSolver, kkt::MadNLP.AbstractKKTSystem)
+function set_predictive_rhs!(solver::MadNLP.AbstractMadNLPSolver)
     # RHS
     px = MadNLP.primal(solver.p)
     py = MadNLP.dual(solver.p)
