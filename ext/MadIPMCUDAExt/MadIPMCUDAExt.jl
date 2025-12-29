@@ -11,6 +11,7 @@ import QuadraticModels: SparseMatrixCOO
 import MadIPM
 
 include("cuda_wrapper.jl")
+include("operators.jl")
 
 @kernel function _fill_sparse_structure!(rows, cols, Ap, Aj, Ax)
     i = @index(Global, Linear)
