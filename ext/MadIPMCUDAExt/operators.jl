@@ -6,8 +6,6 @@ mutable struct MadIPMOperator{T,M,M2} <: AbstractMatrix{T}
     mat::M2
     transa::Char
     descA::CUSPARSE.CuSparseMatrixDescriptor
-    descX::CUSPARSE.CuDenseVectorDescriptor
-    descY::CUSPARSE.CuDenseVectorDescriptor
     buffer::CuVector{UInt8}
     alpha::Base.RefValue{T}
     beta::Base.RefValue{T}
@@ -41,7 +39,7 @@ for (SparseMatrixType, BlasType) in ((:(CuSparseMatrixCSR{T}), :BlasFloat),
             M2 = typeof(mat)
             alpha = Ref{T}(one(T))
             beta = Ref{T}(zero(T))
-            return MadIPMOperator{T,M,M2}(T, m, n, A, mat, transa, descA, descX, descY, buffer, alpha, beta)
+            return MadIPMOperator{T,M,M2}(T, m, n, A, mat, transa, descA, buffer, alpha, beta)
         end
     end
 end
@@ -52,5 +50,5 @@ function LinearAlgebra.mul!(y::CuVector{T}, A::MadIPMOperator{T}, x::CuVector{T}
     descY = CUSPARSE.CuDenseVectorDescriptor(y)
     descX = CUSPARSE.CuDenseVectorDescriptor(x)
     algo = CUSPARSE.CUSPARSE_SPMV_ALG_DEFAULT
-    CUSPARSE.cusparseSpMV(CUSPARSE.handle(), A.transa, A.alpha, A.descA, A.descX, A.beta, A.descY, T, algo, A.buffer)
+    CUSPARSE.cusparseSpMV(CUSPARSE.handle(), A.transa, A.alpha, A.descA, descX, A.beta, descY, T, algo, A.buffer)
 end
