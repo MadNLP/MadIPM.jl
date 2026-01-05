@@ -71,7 +71,8 @@ function batch_initialize!(batch_solver::AbstractBatchSolver)
     for_active(batch_solver,
         MadIPM.pre_initialize!,
         MadIPM.init_starting_point_solve!,
-        MadIPM.post_initialize!
+        MadIPM.post_initialize!,
+        MadIPM.update_jacl!,
     )
     return
 end
