@@ -535,7 +535,7 @@ function batch_update_barrier!(batch_solver::UniformBatchSolver)
 end
 
 function batch_prediction_step_size!(batch_solver::UniformBatchSolver)
-    pack_prediction_step_data!(batch_solver)
+    # pack_prediction_step_data!(batch_solver)
     batch_get_fraction_to_boundary_step!(batch_solver)
     batch_get_affine_complementarity_measure!(batch_solver)
     batch_get_correction!(batch_solver)
