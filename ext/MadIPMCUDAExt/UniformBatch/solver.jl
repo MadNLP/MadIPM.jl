@@ -17,8 +17,8 @@ batch_init_starting_point_solve!(batch_solver::UniformBatchSolver) = begin
     return
 end
 batch_factorize_regularized_system!(batch_solver::UniformBatchSolver) = begin
+    batch_set_aug_diagonal_reg!(batch_solver)
     for_active(batch_solver,
-        MadIPM.set_aug_diagonal_reg!,
         MadNLP.build_kkt!
     )
     batch_factorize!(batch_solver.bkkt)
