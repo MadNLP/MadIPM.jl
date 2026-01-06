@@ -25,6 +25,7 @@ MadNLP.set_options!(::Nothing, x) = x
 MadNLP.is_supported(::Type{NoLinearSolver}, ::Type{T}) where {T<:AbstractFloat} = true
 
 
-include("kkt.jl")
 include("structure.jl")
+include("kkt.jl")
 include("solver.jl")
+include("batch_step.jl")

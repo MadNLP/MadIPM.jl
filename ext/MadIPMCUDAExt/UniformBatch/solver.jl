@@ -17,8 +17,8 @@ batch_init_starting_point_solve!(batch_solver::UniformBatchSolver) = begin
     return
 end
 batch_factorize_regularized_system!(batch_solver::UniformBatchSolver) = begin
+    batch_set_aug_diagonal_reg!(batch_solver)
     for_active(batch_solver,
-        MadIPM.set_aug_diagonal_reg!,
         MadNLP.build_kkt!
     )
     batch_factorize!(batch_solver.bkkt)
@@ -50,6 +50,20 @@ end
 @inline function for_active(batch_solver, funcs...)
     for func in funcs
         batch_func(batch_solver, func)
+    end
+end
+
+function batch_func_withindex(batch_solver::AbstractBatchSolver, func)
+    for i in 1:batch_solver.bkkt.active_batch_size[]
+        solver_idx = batch_solver.bkkt.batch_map_rev[i]
+        solver = batch_solver[solver_idx]
+        func(i, solver)
+    end
+end
+
+function for_active_withindex(batch_solver, funcs...)
+    for func in funcs
+        batch_func_withindex(batch_solver, func)
     end
 end
 
