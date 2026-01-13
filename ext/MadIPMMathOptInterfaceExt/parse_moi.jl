@@ -64,7 +64,7 @@ function parse_constraints(moimodel, index_map)
         for cidx in conindices
             fun = MOI.get(moimodel, MOI.ConstraintFunction(), cidx)
             if F == VI
-                index_map[cidx] = MOI.ConstraintIndex{F, S}(fun.value)
+                index_map[cidx] = MOI.ConstraintIndex{F, S}(_index(fun))
                 continue
             else
                 index_map[cidx] = MOI.ConstraintIndex{F, S}(nlin)

@@ -1,4 +1,11 @@
 
+const _SCALAR_SETS = Union{
+    MOI.GreaterThan{Float64},
+    MOI.LessThan{Float64},
+    MOI.EqualTo{Float64},
+    MOI.Interval{Float64},
+}
+
 mutable struct Optimizer <: MOI.AbstractOptimizer
     options::Dict{String, Any}
     silent::Bool
@@ -169,20 +176,63 @@ function MOI.get(optimizer::Optimizer, attr::MOI.PrimalStatus)
         return MOI.FEASIBLE_POINT
     elseif MOI.get(optimizer, MOI.TerminationStatus()) == MOI.INFEASIBLE
         return MOI.INFEASIBLE_POINT
-    else
-        # TODO
-        return MOI.UNKNOWN_RESULT_STATUS
     end
+    return MOI.NO_SOLUTION
 end
 
-function MOI.get(::Optimizer, ::MOI.DualStatus)
-    # TODO
+function MOI.get(model::Optimizer, attr::MOI.DualStatus)
+    if attr.result_index > MOI.get(model, MOI.ResultCount())
+        return MOI.NO_SOLUTION
+    elseif MOI.get(model, MOI.TerminationStatus()) == MOI.OPTIMAL
+        return MOI.FEASIBLE_POINT
+    elseif MOI.get(model, MOI.TerminationStatus()) == MOI.INFEASIBLE
+        return MOI.INFEASIBLE_POINT
+    end
     return MOI.NO_SOLUTION
 end
 
 function MOI.get(optimizer::Optimizer, attr::MOI.VariablePrimal, vi::MOI.VariableIndex)
     MOI.check_result_index_bounds(optimizer, attr)
     return optimizer.stats.solution[vi.value]
+end
+
+function MOI.get(
+    model::Optimizer,
+    attr::MOI.ConstraintPrimal,
+    c::MOI.ConstraintIndex{MOI.VariableIndex,<:_SCALAR_SETS},
+)
+    MOI.check_result_index_bounds(model, attr)
+    return MOI.get(model, MOI.VariablePrimal(), MOI.VariableIndex(c.value))
+end
+
+function MOI.get(
+    model::Optimizer,
+    attr::MOI.ConstraintPrimal,
+    c::MOI.ConstraintIndex{MOI.ScalarAffineFunction{Float64},<:_SCALAR_SETS},
+)
+    MOI.check_result_index_bounds(model, attr)
+    return model.stats.constraints[c.value+1]
+end
+
+function MOI.get(
+    model::Optimizer,
+    attr::MOI.ConstraintDual,
+    c::MOI.ConstraintIndex{MOI.VariableIndex,S},
+) where {S<:_SCALAR_SETS}
+    MOI.check_result_index_bounds(model, attr)
+    col = c.value
+    dual = model.stats.multipliers_L[col] - model.stats.multipliers_U[col]
+    return dual
+end
+
+function MOI.get(
+    model::Optimizer,
+    attr::MOI.ConstraintDual,
+    c::MOI.ConstraintIndex{MOI.ScalarAffineFunction{Float64},S},
+) where {S<:_SCALAR_SETS}
+    MOI.check_result_index_bounds(model, attr)
+    dual = model.stats.multipliers[c.value+1]
+    return dual
 end
 
 MOI.get(optimizer::Optimizer, ::MOI.ResultCount) = 1
