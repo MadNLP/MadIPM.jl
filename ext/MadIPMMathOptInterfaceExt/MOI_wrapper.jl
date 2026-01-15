@@ -1,11 +1,4 @@
 
-const _SCALAR_SETS = Union{
-    MOI.GreaterThan{Float64},
-    MOI.LessThan{Float64},
-    MOI.EqualTo{Float64},
-    MOI.Interval{Float64},
-}
-
 mutable struct Optimizer <: MOI.AbstractOptimizer
     options::Dict{String, Any}
     silent::Bool
@@ -76,6 +69,14 @@ function MOI.supports(
     return true
 end
 
+function MOI.get(
+    model::Optimizer,
+    ::MOI.ObjectiveSense,
+)
+    qp = model.qp
+    return (qp.meta.minimize) ? MOI.MIN_SENSE : MOI.MAX_SENSE
+end
+
 
 ###
 ### MOI.AbstractVariableAttribute
@@ -89,9 +90,8 @@ end
 ### `supports_constraint`
 ###
 
-MOI.supports_constraint(::Optimizer, ::Type{VI}, ::Type{<:ALS}) = true
-MOI.supports_constraint(::Optimizer, ::Type{SAF}, ::Type{<:ALS}) = true
-MOI.supports_constraint(::Optimizer, ::Type{VAF}, ::Type{<:VLS}) = true
+MOI.supports_constraint(::Optimizer, ::Type{VI}, ::Type{<:_SCALAR_SETS}) = true
+MOI.supports_constraint(::Optimizer, ::Type{SAF}, ::Type{<:_SCALAR_SETS}) = true
 
 function MOI.copy_to(dest::Optimizer, src::MOI.ModelLike)
     dest.qp, index_map = qp_model(src)
@@ -221,7 +221,13 @@ function MOI.get(
 ) where {S<:_SCALAR_SETS}
     MOI.check_result_index_bounds(model, attr)
     col = c.value
-    dual = model.stats.multipliers_L[col] - model.stats.multipliers_U[col]
+    dual = if S <: MOI.LessThan
+        -model.stats.multipliers_U[col]
+    elseif S <: MOI.GreaterThan
+        model.stats.multipliers_L[col]
+    else
+        model.stats.multipliers_L[col] - model.stats.multipliers_U[col]
+    end
     return dual
 end
 
@@ -232,7 +238,7 @@ function MOI.get(
 ) where {S<:_SCALAR_SETS}
     MOI.check_result_index_bounds(model, attr)
     dual = model.stats.multipliers[c.value+1]
-    return dual
+    return -dual
 end
 
 MOI.get(optimizer::Optimizer, ::MOI.ResultCount) = 1
