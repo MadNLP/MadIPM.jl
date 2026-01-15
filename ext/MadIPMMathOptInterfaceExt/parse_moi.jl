@@ -1,5 +1,5 @@
 # Adapted from NLPModelsJuMP
-#
+
 import QuadraticModels: SparseMatrixCOO
 
 const MOI = MathOptInterface
@@ -11,13 +11,12 @@ const SQF = MOI.ScalarQuadraticFunction{Float64}
 const AF = Union{SAF, VAF}
 const LinQuad = Union{VI, SAF, SQF}
 
-const ALS = Union{
+const _SCALAR_SETS = Union{
   MOI.EqualTo{Float64},
   MOI.GreaterThan{Float64},
   MOI.LessThan{Float64},
   MOI.Interval{Float64},
 }
-const VLS = Union{MOI.Nonnegatives, MOI.Nonpositives, MOI.Zeros}
 
 function parse_variable(model)
     # Number of variables and bounds constraints
@@ -64,13 +63,13 @@ function parse_constraints(moimodel, index_map)
         for cidx in conindices
             fun = MOI.get(moimodel, MOI.ConstraintFunction(), cidx)
             if F == VI
-                index_map[cidx] = MOI.ConstraintIndex{F, S}(fun.value)
+                index_map[cidx] = MOI.ConstraintIndex{F, S}(_index(fun))
                 continue
             else
                 index_map[cidx] = MOI.ConstraintIndex{F, S}(nlin)
             end
             set = MOI.get(moimodel, MOI.ConstraintSet(), cidx)
-            if typeof(fun) <: SAF
+            if F <: SAF
                 for term in fun.terms
                     push!(linrows, nlin + 1)
                     push!(lincols, _index(term.variable))
@@ -93,24 +92,6 @@ function parse_constraints(moimodel, index_map)
                     push!(lin_ucon, Inf)
                 end
                 nlin += 1
-            end
-            if typeof(fun) <: VAF
-                for term in fun.terms
-                    push!(linrows, nlin + term.output_index)
-                    push!(lincols, _index(term.scalar_term.variable))
-                    push!(linvals, term.scalar_term.coefficient)
-                end
-                if typeof(set) in (MOI.Nonnegatives, MOI.Zeros)
-                    append!(lin_lcon, -fun.constants)
-                else
-                    append!(lin_lcon, -Inf * ones(set.dimension))
-                end
-                if typeof(set) in (MOI.Nonpositives, MOI.Zeros)
-                    append!(lin_ucon, -fun.constants)
-                else
-                    append!(lin_ucon, Inf * ones(set.dimension))
-                end
-                nlin += set.dimension
             end
         end
     end
