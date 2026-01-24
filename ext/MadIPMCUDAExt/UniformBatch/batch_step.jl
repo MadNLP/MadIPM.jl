@@ -588,7 +588,7 @@ function batch_update_step_size!(batch_solver::UniformBatchSolver)
 end
 
 # TODO: add MehrotraAdaptiveStep
-function batch_set_tau!(rule::AdaptiveStep, batch_solver)
+function batch_set_tau!(rule::MadIPM.AdaptiveStep, batch_solver)
     bkkt = batch_solver.bkkt
     active_size = bkkt.active_batch_size[]
     step = batch_solver.step
@@ -603,7 +603,7 @@ function batch_set_tau!(rule::AdaptiveStep, batch_solver)
     copyto!(mu, mu_cpu)
     tau .= max.(1 .- mu, rule.tau_min)
 end
-function batch_set_tau!(rule::ConservativeStep, batch_solver)
+function batch_set_tau!(rule::MadIPM.ConservativeStep, batch_solver)
     bkkt = batch_solver.bkkt
     active_size = bkkt.active_batch_size[]
     step = batch_solver.step
