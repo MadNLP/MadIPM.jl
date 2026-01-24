@@ -24,8 +24,13 @@ struct BatchStepData{T, VT<:AbstractVector{T}, VTC<:AbstractVector{T}}
     mu_new::VT
     sum_lb::VT
     sum_ub::VT
+    tau::VT
+    mu::VT
     mu_curr_cpu::VTC
     mu_new_cpu::VTC
+    alpha_p_cpu::VTC
+    alpha_d_cpu::VTC
+    mu_cpu::VTC
     pr_diag::VT
     buffer1::VT
     buffer2::VT
@@ -64,12 +69,17 @@ function BatchStepData(solver::MadIPM.MPCSolver{T,VT}, batch_size::Int) where {T
         fill!(VT(undef, batch_size), zero(T)),
         fill!(VT(undef, batch_size), zero(T)),
         fill!(VT(undef, batch_size), zero(T)),
+        fill!(VT(undef, batch_size), zero(T)),
+        fill!(VT(undef, batch_size), zero(T)),
         fill!(VTC(undef, batch_size), zero(T)),
         fill!(VTC(undef, batch_size), zero(T)),
+        fill!(VTC(undef, batch_size), zero(T)),
+        fill!(VTC(undef, batch_size), zero(T)),
+        fill!(VTC(undef, batch_size), zero(T)),
         fill!(VT(undef, n_tot * batch_size), zero(T)),
         fill!(VT(undef, n_tot * batch_size), zero(T)),
         fill!(VT(undef, n_tot * batch_size), zero(T)),
-        fill!(VT(undef, n_tot * batch_size), one(T)),
+        fill!(VT(undef, n_tot * batch_size), zero(T)),
         nlb, nub, n_tot, batch_size,
     )
 end
@@ -326,14 +336,15 @@ function batch_get_fraction_to_boundary_step!(batch_solver::UniformBatchSolver)
     active_size = bkkt.active_batch_size[]
     step = batch_solver.step
     nlb, nub = step.nlb, step.nub
-    T = eltype(step.x_lr)
-    tau = one(T)
+    T = eltype(batch_solver)
     inf_val = T(Inf)
 
     alpha_xl = MadNLP._madnlp_unsafe_wrap(step.alpha_xl, active_size, 1)
     alpha_zl = MadNLP._madnlp_unsafe_wrap(step.alpha_zl, active_size, 1)
     alpha_xu = MadNLP._madnlp_unsafe_wrap(step.alpha_xu, active_size, 1)
     alpha_zu = MadNLP._madnlp_unsafe_wrap(step.alpha_zu, active_size, 1)
+
+    tau_vec = MadNLP._madnlp_unsafe_wrap(step.tau, active_size, 1)
 
     if nlb > 0
         x_lr_mat = _batch_matrix(step.x_lr, nlb, active_size)
@@ -342,12 +353,12 @@ function batch_get_fraction_to_boundary_step!(batch_solver::UniformBatchSolver)
         zl_r_mat = _batch_matrix(step.zl_r, nlb, active_size)
         dzl_mat = _batch_matrix(step.dzl, nlb, active_size)
 
-        alpha_xl .= vec(mapreduce(
-            (dx, xl, x) -> ifelse(dx < 0, (xl - x) * tau / dx, inf_val),
+        alpha_xl .= tau_vec .* vec(mapreduce(
+            (dx, xl, x, tau) -> ifelse(dx < 0, (xl - x) / dx, inf_val),
             min, dx_lr_mat, xl_r_mat, x_lr_mat; dims=1, init=inf_val))
 
-        alpha_zl .= vec(mapreduce(
-            (dz, z) -> ifelse(dz < 0, -z * tau / dz, inf_val),
+        alpha_zl .= tau_vec .* vec(mapreduce(
+            (dz, z, tau) -> ifelse(dz < 0, -z / dz, inf_val),
             min, dzl_mat, zl_r_mat; dims=1, init=inf_val))
     else
         fill!(alpha_xl, one(T))
@@ -361,12 +372,12 @@ function batch_get_fraction_to_boundary_step!(batch_solver::UniformBatchSolver)
         zu_r_mat = _batch_matrix(step.zu_r, nub, active_size)
         dzu_mat = _batch_matrix(step.dzu, nub, active_size)
 
-        alpha_xu .= vec(mapreduce(
-            (dx, xu, x) -> ifelse(dx > 0, (xu - x) * tau / dx, inf_val),
+        alpha_xu .= tau_vec .* vec(mapreduce(
+            (dx, xu, x, tau) -> ifelse(dx > 0, (xu - x) / dx, inf_val),
             min, dx_ur_mat, xu_r_mat, x_ur_mat; dims=1, init=inf_val))
 
-        alpha_zu .= vec(mapreduce(
-            (dz, z) -> ifelse((dz < 0) & (z + dz < 0), -z * tau / dz, inf_val),
+        alpha_zu .= tau_vec .* vec(mapreduce(
+            (dz, z, tau) -> ifelse((dz < 0) & (z + dz < 0), -z / dz, inf_val),
             min, dzu_mat, zu_r_mat; dims=1, init=inf_val))
     else
         fill!(alpha_xu, one(T))
@@ -535,7 +546,11 @@ function batch_update_barrier!(batch_solver::UniformBatchSolver)
 end
 
 function batch_prediction_step_size!(batch_solver::UniformBatchSolver)
+    bkkt = batch_solver.bkkt
+    active_size = bkkt.active_batch_size[]
+    step = batch_solver.step
     pack_prediction_step_data!(batch_solver)
+    fill!(MadNLP._madnlp_unsafe_wrap(step.tau, active_size, 1), one(eltype(batch_solver)))
     batch_get_fraction_to_boundary_step!(batch_solver)
     batch_get_affine_complementarity_measure!(batch_solver)
     batch_get_correction!(batch_solver)
@@ -545,3 +560,57 @@ end
 
 batch_func(batch_solver::UniformBatchSolver, ::typeof(MadIPM.prediction_step_size!)) =
     batch_prediction_step_size!(batch_solver)
+
+function batch_update_step_size!(batch_solver::UniformBatchSolver)
+    bkkt = batch_solver.bkkt
+    active_size = bkkt.active_batch_size[]
+    step = batch_solver.step
+    
+    rule = batch_solver[bkkt.batch_map_rev[1]].opt.step_rule# FIXME: global options
+    pack_prediction_step_data!(batch_solver)
+    batch_set_tau!(rule, batch_solver)
+    batch_get_fraction_to_boundary_step!(batch_solver)
+
+    alpha_p = MadNLP._madnlp_unsafe_wrap(step.alpha_p, active_size, 1)
+    alpha_d = MadNLP._madnlp_unsafe_wrap(step.alpha_d, active_size, 1)
+
+    alpha_p_cpu = MadNLP._madnlp_unsafe_wrap(step.alpha_p_cpu, active_size, 1)
+    alpha_d_cpu = MadNLP._madnlp_unsafe_wrap(step.alpha_d_cpu, active_size, 1)
+
+    copyto!(alpha_p_cpu, alpha_p)
+    copyto!(alpha_d_cpu, alpha_d)
+
+
+    for_active_withindex(batch_solver, (i, solver) -> begin
+        solver.alpha_p = alpha_p_cpu[i]
+        solver.alpha_d = alpha_d_cpu[i]
+    end)
+end
+
+# TODO: add MehrotraAdaptiveStep
+function batch_set_tau!(rule::AdaptiveStep, batch_solver)
+    bkkt = batch_solver.bkkt
+    active_size = bkkt.active_batch_size[]
+    step = batch_solver.step
+
+    tau = MadNLP._madnlp_unsafe_wrap(step.tau, active_size, 1)
+    mu = MadNLP._madnlp_unsafe_wrap(step.mu, active_size, 1)
+    mu_cpu = MadNLP._madnlp_unsafe_wrap(step.mu_cpu, active_size, 1)
+
+    for_active_withindex(batch_solver, (i, solver) -> begin
+        mu_cpu[i] = solver.mu
+    end)
+    copyto!(mu, mu_cpu)
+    tau .= max.(1 .- mu, rule.tau_min)
+end
+function batch_set_tau!(rule::ConservativeStep, batch_solver)
+    bkkt = batch_solver.bkkt
+    active_size = bkkt.active_batch_size[]
+    step = batch_solver.step
+
+    tau = MadNLP._madnlp_unsafe_wrap(step.tau, active_size, 1)
+    fill!(tau, rule.tau)
+end
+
+batch_func(batch_solver::UniformBatchSolver, ::typeof(MadIPM.update_step_size!)) =
+    batch_update_step_size!(batch_solver)
