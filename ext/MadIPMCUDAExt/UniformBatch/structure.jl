@@ -44,3 +44,5 @@ update_batch!(batch_solver::UniformBatchSolver) = begin
     needs_update && update_batch!(batch_solver.bkkt)
     return
 end
+
+eltype(batch_solver::UniformBatchSolver) = eltype(batch_solver.step.x_lr)
