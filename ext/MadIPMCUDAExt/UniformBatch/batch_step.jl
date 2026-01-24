@@ -354,11 +354,11 @@ function batch_get_fraction_to_boundary_step!(batch_solver::UniformBatchSolver)
         dzl_mat = _batch_matrix(step.dzl, nlb, active_size)
 
         alpha_xl .= tau_vec .* vec(mapreduce(
-            (dx, xl, x, tau) -> ifelse(dx < 0, (xl - x) / dx, inf_val),
+            (dx, xl, x) -> ifelse(dx < 0, (xl - x) / dx, inf_val),
             min, dx_lr_mat, xl_r_mat, x_lr_mat; dims=1, init=inf_val))
 
         alpha_zl .= tau_vec .* vec(mapreduce(
-            (dz, z, tau) -> ifelse(dz < 0, -z / dz, inf_val),
+            (dz, z) -> ifelse(dz < 0, -z / dz, inf_val),
             min, dzl_mat, zl_r_mat; dims=1, init=inf_val))
     else
         fill!(alpha_xl, one(T))
@@ -373,11 +373,11 @@ function batch_get_fraction_to_boundary_step!(batch_solver::UniformBatchSolver)
         dzu_mat = _batch_matrix(step.dzu, nub, active_size)
 
         alpha_xu .= tau_vec .* vec(mapreduce(
-            (dx, xu, x, tau) -> ifelse(dx > 0, (xu - x) / dx, inf_val),
+            (dx, xu, x) -> ifelse(dx > 0, (xu - x) / dx, inf_val),
             min, dx_ur_mat, xu_r_mat, x_ur_mat; dims=1, init=inf_val))
 
         alpha_zu .= tau_vec .* vec(mapreduce(
-            (dz, z, tau) -> ifelse((dz < 0) & (z + dz < 0), -z / dz, inf_val),
+            (dz, z) -> ifelse((dz < 0) & (z + dz < 0), -z / dz, inf_val),
             min, dzu_mat, zu_r_mat; dims=1, init=inf_val))
     else
         fill!(alpha_xu, one(T))
