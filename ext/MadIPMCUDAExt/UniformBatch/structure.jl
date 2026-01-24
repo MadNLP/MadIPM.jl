@@ -45,4 +45,4 @@ update_batch!(batch_solver::UniformBatchSolver) = begin
     return
 end
 
-eltype(batch_solver::UniformBatchSolver) = eltype(batch_solver.step.x_lr)
+Base.eltype(batch_solver::UniformBatchSolver) = eltype(batch_solver.step.x_lr)
