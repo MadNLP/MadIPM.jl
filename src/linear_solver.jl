@@ -23,7 +23,7 @@ function solve_system!(
 ) where T
     opt = solver.opt
     copyto!(MadNLP.full(d), MadNLP.full(p))
-    MadNLP.solve_kkt_system!(solver.kkt, d)
+    MadNLP.solve_kkt!(solver.kkt, d)
 
     # Check residual
     w = solver._w1

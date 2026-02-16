@@ -192,7 +192,7 @@ function MadNLP.build_kkt!(kkt::NormalKKTSystem)
     return
 end
 
-function MadNLP.solve_kkt_system!(kkt::NormalKKTSystem, w::MadNLP.AbstractKKTVector)
+function MadNLP.solve_kkt!(kkt::NormalKKTSystem, w::MadNLP.AbstractKKTVector)
     MadNLP.reduce_rhs!(w.xp_lr, MadNLP.dual_lb(w), kkt.l_diag, w.xp_ur, MadNLP.dual_ub(w), kkt.u_diag)
     r1 = kkt.buffer_n
     r2 = kkt.buffer_m
