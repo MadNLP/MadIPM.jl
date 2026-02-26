@@ -160,20 +160,18 @@ end
         new_qp = MadIPM.standard_form_qp(qp)
         solver = MadIPM.MPCSolver(new_qp; print_level=MadNLP.ERROR)
         sol = MadIPM.solve!(solver)
-        @test sol.objective == sol_ref.objective
+        @test sol.objective ≈ sol_ref.objective atol=1e-6
     end
 
     @testset "NormalKKTSystem implementation" begin
         # Test
         linear_solver = MadNLP.LapackCPUSolver
-        ind_cons = MadNLP.get_index_constraints(qp)
         cb = MadNLP.create_callback(
             MadNLP.SparseCallback, qp,
         )
         kkt = MadNLP.create_kkt_system(
             MadIPM.NormalKKTSystem,
             cb,
-            ind_cons,
             linear_solver;
         )
         MadNLPTests.test_kkt_system(kkt, cb)

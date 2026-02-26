@@ -94,19 +94,10 @@ function MPCSolver(nlp::NLPModels.AbstractNLPModel{T,VT}; kwargs...) where {T, V
     # generic options
     MadNLP.@trace(logger,"Initializing variables.")
 
-    ind_cons = MadNLP.get_index_constraints(
-        NLPModels.get_lvar(nlp),
-        NLPModels.get_uvar(nlp),
-        NLPModels.get_lcon(nlp),
-        NLPModels.get_ucon(nlp);
-        fixed_variable_treatment=ipm_opt.fixed_variable_treatment,
-        equality_treatment=ipm_opt.equality_treatment
-    )
+    ind_lb = cb.ind_lb
+    ind_ub = cb.ind_ub
 
-    ind_lb = ind_cons.ind_lb
-    ind_ub = ind_cons.ind_ub
-
-    ns = length(ind_cons.ind_ineq)
+    ns = length(cb.ind_ineq)
     nx = NLPModels.get_nvar(nlp)
     n = nx+ns
     m = NLPModels.get_ncon(nlp)
@@ -117,7 +108,6 @@ function MPCSolver(nlp::NLPModels.AbstractNLPModel{T,VT}; kwargs...) where {T, V
     kkt = MadNLP.create_kkt_system(
         ipm_opt.kkt_system,
         cb,
-        ind_cons,
         ipm_opt.linear_solver;
         opt_linear_solver=options.linear_solver,
     )
@@ -143,14 +133,14 @@ function MPCSolver(nlp::NLPModels.AbstractNLPModel{T,VT}; kwargs...) where {T, V
     c = VT(undef, m)
     rhs = VT(undef, m)
 
-    x_lr = view(full(x), ind_cons.ind_lb)
-    x_ur = view(full(x), ind_cons.ind_ub)
-    xl_r = view(full(xl), ind_cons.ind_lb)
-    xu_r = view(full(xu), ind_cons.ind_ub)
-    zl_r = view(full(zl), ind_cons.ind_lb)
-    zu_r = view(full(zu), ind_cons.ind_ub)
-    dx_lr = view(d.xp, ind_cons.ind_lb)
-    dx_ur = view(d.xp, ind_cons.ind_ub)
+    x_lr = view(full(x), cb.ind_lb)
+    x_ur = view(full(x), cb.ind_ub)
+    xl_r = view(full(xl), cb.ind_lb)
+    xu_r = view(full(xu), cb.ind_ub)
+    zl_r = view(full(zl), cb.ind_lb)
+    zu_r = view(full(zu), cb.ind_ub)
+    dx_lr = view(d.xp, cb.ind_lb)
+    dx_ur = view(d.xp, cb.ind_ub)
 
     cnt.init_time = time() - cnt.start_time
 
@@ -169,8 +159,8 @@ function MPCSolver(nlp::NLPModels.AbstractNLPModel{T,VT}; kwargs...) where {T, V
         _w1, _w2,
         correction_lb, correction_ub,
         rhs,
-        ind_cons.ind_ineq, ind_cons.ind_fixed, ind_cons.ind_llb, ind_cons.ind_uub,
-        ind_cons.ind_lb, ind_cons.ind_ub,
+        cb.ind_ineq, cb.ind_fixed, cb.ind_llb, cb.ind_uub,
+        cb.ind_lb, cb.ind_ub,
         x_lr, x_ur, xl_r, xu_r, zl_r, zu_r, dx_lr, dx_ur,
         zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), zero(T), typemax(T), zero(T),
         MadNLP.INITIAL,

@@ -359,11 +359,12 @@ function mpc!(solver::MadNLP.AbstractMadNLPSolver)
     end
 end
 
+solve!(solver::MadNLP.AbstractMadNLPSolver; kwargs...) = solve!(solver, MadNLP.MadNLPExecutionStats(solver); kwargs...)
 function solve!(
-    solver::MadNLP.AbstractMadNLPSolver;
-    kwargs...
+    solver::MadNLP.AbstractMadNLPSolver,
+    stats::MadNLP.MadNLPExecutionStats;
+    kwargs...    
 )
-    stats = MadNLP.MadNLPExecutionStats(solver)
     nlp = solver.nlp
     solver.cnt.start_time = time()
 

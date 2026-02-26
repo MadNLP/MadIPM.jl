@@ -29,7 +29,6 @@ end
 function MadNLP.create_kkt_system(
     ::Type{NormalKKTSystem},
     cb::MadNLP.SparseCallback{T,VT},
-    ind_cons,
     linear_solver::Type;
     opt_linear_solver=MadNLP.default_options(linear_solver),
     hessian_approximation=MadNLP.ExactHessian,
@@ -37,10 +36,10 @@ function MadNLP.create_kkt_system(
 ) where {T,VT}
     n = cb.nvar
     m = cb.ncon
-    ind_ineq = ind_cons.ind_ineq
+    ind_ineq = cb.ind_ineq
     n_slack = length(ind_ineq)
-    nlb = length(ind_cons.ind_lb)
-    nub = length(ind_cons.ind_ub)
+    nlb = length(cb.ind_lb)
+    nub = length(cb.ind_ub)
 
     if cb.nnzh > 0
         error("The KKT system NormalKKTSystem supports only linear programs.
@@ -133,8 +132,8 @@ function MadNLP.create_kkt_system(
         buffer_m,
         _linear_solver,
         ind_ineq,
-        ind_cons.ind_lb,
-        ind_cons.ind_ub,
+        cb.ind_lb,
+        cb.ind_ub,
         ntot, m,
     )
 end
@@ -193,7 +192,7 @@ function MadNLP.build_kkt!(kkt::NormalKKTSystem)
     return
 end
 
-function MadNLP.solve!(kkt::NormalKKTSystem, w::MadNLP.AbstractKKTVector)
+function MadNLP.solve_kkt!(kkt::NormalKKTSystem, w::MadNLP.AbstractKKTVector)
     MadNLP.reduce_rhs!(w.xp_lr, MadNLP.dual_lb(w), kkt.l_diag, w.xp_ur, MadNLP.dual_ub(w), kkt.u_diag)
     r1 = kkt.buffer_n
     r2 = kkt.buffer_m
@@ -207,7 +206,7 @@ function MadNLP.solve!(kkt::NormalKKTSystem, w::MadNLP.AbstractKKTVector)
     r2 .= wy                               # r₂
     mul!(r2, kkt.AT', r1, 1.0, -1.0)       # A Σ⁻¹ r₁ - r₂
     # Solve normal KKT system
-    MadNLP.solve!(kkt.linear_solver, r2)   # Δy
+    MadNLP.solve_linear_system!(kkt.linear_solver, r2)   # Δy
     # Unpack solution
     wy .= r2                               # Δy
     r1 .= wx                               # r₁

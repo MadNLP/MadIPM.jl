@@ -149,9 +149,6 @@ end
 
 function update_solution!(stats::MadNLP.MadNLPExecutionStats{T}, solver) where T
     MadNLP.update!(stats,solver)
-    if !NLPModels.get_minimize(solver.nlp)
-        stats.objective *= -one(T)
-    end
     return
 end
 
