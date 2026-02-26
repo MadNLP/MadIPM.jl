@@ -231,14 +231,16 @@ function MOI.get(
     return dual
 end
 
+_dual_multiplier(model::Optimizer) = model.qp.meta.minimize ? 1.0 : -1.0
+
 function MOI.get(
     model::Optimizer,
     attr::MOI.ConstraintDual,
     c::MOI.ConstraintIndex{MOI.ScalarAffineFunction{Float64},S},
 ) where {S<:_SCALAR_SETS}
     MOI.check_result_index_bounds(model, attr)
-    dual = model.stats.multipliers[c.value+1]
-    return -dual
+    s = -_dual_multiplier(model)
+    return s * model.stats.multipliers[c.value+1]
 end
 
 MOI.get(optimizer::Optimizer, ::MOI.ResultCount) = 1

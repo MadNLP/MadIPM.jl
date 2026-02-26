@@ -18,4 +18,6 @@ include("solver.jl")
 
 export MPCSolver, madipm
 
+MadNLP.madsuite(::Val{:madipm}, args...; kwargs...) = madipm(args...; kwargs...)
+
 end # module MadIPM
