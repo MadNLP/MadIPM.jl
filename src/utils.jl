@@ -84,6 +84,7 @@ end
     equality_treatment::Type = kkt_system <: MadNLP.SparseCondensedKKTSystem ? MadNLP.RelaxEquality : MadNLP.EnforceEquality
     # initialization options
     scaling::Bool = true
+    nlp_scaling_max_gradient::Float64 = 100.0
     bound_push::Float64 = 1e-2
     bound_fac::Float64 = 1e-2
     bound_relax_factor::Float64 = 1e-12
