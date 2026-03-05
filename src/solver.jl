@@ -328,14 +328,8 @@ function is_done(solver)
     return solver.status != MadNLP.REGULAR
 end
 
-# Predictor-corrector method
-function mpc!(solver::MadNLP.AbstractMadNLPSolver)
-    while true
-        # Check termination criteria
-        MadNLP.print_iter(solver)
-        update_termination_criteria!(solver)
-        is_done(solver) && return
-
+# One iteration of Predictor-corrector method
+function mpc_step!(solver::MadNLP.AbstractMadNLPSolver)
         # Factorize KKT system
         factorize_system!(solver)
 
@@ -356,6 +350,14 @@ function mpc!(solver::MadNLP.AbstractMadNLPSolver)
 
         # Evaluate model at new iterate
         evaluate_model!(solver)
+end
+
+function mpc!(solver::MadNLP.AbstractMadNLPSolver)
+    while true
+        MadNLP.print_iter(solver)
+        update_termination_criteria!(solver)
+        is_done(solver) && return
+        mpc_step!(solver)
     end
 end
 

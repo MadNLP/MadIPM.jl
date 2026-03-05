@@ -288,16 +288,15 @@ function get_fraction_to_boundary_step(solver, tau)
     return min(alpha_xl, alpha_xu), min(alpha_zl, alpha_zu)
 end
 
-function update_step!(rule::ConservativeStep, solver)
-    alpha_p, alpha_d = get_fraction_to_boundary_step(solver, rule.tau)
-    solver.alpha_p = alpha_p
-    solver.alpha_d = alpha_d
-    return
+function get_tau(rule::ConservativeStep, solver)
+    rule.tau
 end
-
 # Implement conservative rule for QP
-function update_step!(rule::AdaptiveStep, solver)
-    tau = max(1-solver.mu, rule.tau_min)
+function get_tau(rule::AdaptiveStep, solver)
+    max(1-solver.mu, rule.tau_min)
+end
+function update_step!(rule::Union{ConservativeStep,AdaptiveStep}, solver)
+    tau = get_tau(rule, solver)
     alpha_p, alpha_d = get_fraction_to_boundary_step(solver, tau)
     solver.alpha_p = alpha_p
     solver.alpha_d = alpha_d
