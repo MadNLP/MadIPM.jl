@@ -154,7 +154,7 @@ function initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
             solver.y,
             solver.rhs,
             solver.ind_ineq,
-            T(100),
+            T(opt.nlp_scaling_max_gradient),
         )
     end
 
@@ -207,9 +207,9 @@ function update_termination_criteria!(solver::MadNLP.AbstractMadNLPSolver)
     if max(solver.inf_pr, solver.inf_du, solver.inf_compl) <= solver.opt.tol
         solver.status = MadNLP.SOLVE_SUCCEEDED
     elseif ((solver.inf_compl > solver.opt.divergence_tol * solver.best_complementarity) &&
-            (dobj > max(10.0 * abs(solver.obj_val), 1.0)))
+            (dobj > max(solver.opt.divergence_scale * abs(solver.obj_val), 1.0)))
         solver.status = MadNLP.INFEASIBLE_PROBLEM_DETECTED
-    elseif solver.obj_val < - solver.opt.divergence_tol * max(10.0, abs(dobj), 1.0)
+    elseif solver.obj_val < - solver.opt.divergence_tol * max(solver.opt.divergence_scale * abs(dobj), 1.0)
         solver.status = MadNLP.DIVERGING_ITERATES
     elseif solver.cnt.k >= solver.opt.max_iter
         solver.status = MadNLP.MAXIMUM_ITERATIONS_EXCEEDED
