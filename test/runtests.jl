@@ -195,6 +195,21 @@ end
     end
 end
 
+@testset "Fixed variable with MakeParameter" begin
+    solver = MadIPM.MPCSolver(
+        QuadraticModel([1.0, 1.0, 1.0], Int[], Int[], Float64[];
+            lcon=[1.0], Arows=[1, 1], Acols=[1, 2], Avals=[1.0, 1.0], ucon=[Inf],
+            lvar=[0.0, 0.0, 2.0], x0=[1.0, 1.0, 1.0], uvar=[Inf, Inf, 2.0],
+        );
+        print_level=MadNLP.ERROR,
+        fixed_variable_treatment=MadNLP.MakeParameter,
+        rethrow_error=true,
+    )
+    sol = MadIPM.solve!(solver)
+    @test sol.status == MadNLP.SOLVE_SUCCEEDED
+    @test sol.solution[3] == 2.0
+end
+
 @testset "MathOptInterface" begin
     include("MOI_wrapper.jl")
 end

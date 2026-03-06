@@ -98,7 +98,7 @@ function MPCSolver(nlp::NLPModels.AbstractNLPModel{T,VT}; kwargs...) where {T, V
     ind_ub = cb.ind_ub
 
     ns = length(cb.ind_ineq)
-    nx = NLPModels.get_nvar(nlp)
+    nx = MadNLP.n_variables(cb)
     n = nx+ns
     m = NLPModels.get_ncon(nlp)
     nlb = length(ind_lb)
