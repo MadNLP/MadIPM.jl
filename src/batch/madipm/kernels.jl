@@ -175,7 +175,7 @@ function update_barrier!(::Mehrotra, solver::AbstractBatchMPCSolver, mu_affine)
     ws = solver.workspace
     T = eltype(ws.mu_curr)
 
-    has_inequalities = (length(_get_ind_llb(solver)) + length(_get_ind_uub(solver))) > 0
+    has_inequalities = (solver.d.nlb + solver.d.nub) > 0
 
     get_complementarity_measure!(solver)
 
