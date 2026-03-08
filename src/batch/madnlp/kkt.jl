@@ -219,11 +219,10 @@ end
 
 function MadNLP.finish_aug_solve!(bkkt::SparseUniformBatchKKTSystem, batch_solver::AbstractBatchMPCSolver)
     d = batch_solver.d
-    zl, zu = batch_solver.zl, batch_solver.zu
     dzl = MadNLP.dual_lb(d)
     dzu = MadNLP.dual_ub(d)
-    dzl .= (.-dzl .+ lower(zl) .* xp_lr(d)) ./ bkkt.l_diag
-    dzu .= (dzu .- upper(zu) .* xp_ur(d)) ./ bkkt.u_diag
+    dzl .= (.-dzl .+ bkkt.l_lower .* xp_lr(d)) ./ bkkt.l_diag
+    dzu .= (dzu .- bkkt.u_lower .* xp_ur(d)) ./ bkkt.u_diag
     return
 end
 

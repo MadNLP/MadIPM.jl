@@ -118,14 +118,20 @@ function init_starting_point!(batch_solver::AbstractBatchMPCSolver{T}) where T
     fill!(μ, zero(T))
     if nlb_init > 0
         _scratch_lb = MadNLP.dual_lb(batch_solver._w2)
-        @. _scratch_lb = (xl - lb) * zl
+        @. _scratch_lb = xl * zl
         sum!(ws.sum_lb, _scratch_lb)
         μ .+= ws.sum_lb
+        @. _scratch_lb = lb * zl
+        sum!(ws.sum_lb, _scratch_lb)
+        μ .-= ws.sum_lb
     end
     if nub_init > 0
         _scratch_ub = MadNLP.dual_ub(batch_solver._w2)
-        @. _scratch_ub = (ub - xu) * zu
+        @. _scratch_ub = ub * zu
         sum!(ws.sum_ub, _scratch_ub)
+        @. _scratch_ub = xu * zu
+        sum!(ws.sum_lb, _scratch_ub)
+        ws.sum_ub .-= ws.sum_lb
         μ .+= ws.sum_ub
     end
 
@@ -284,7 +290,9 @@ function update_termination_criteria!(batch_solver::AbstractBatchMPCSolver{T}) w
 
     # inf_compl[i] = get_optimality_gap / max(1, norm_c[i])
     if nlb > 0
-        x_lr = lower(x); xl_r = lower(xl); zl_r = lower(zl)
+        x_lr = lower(x)
+        xl_r = lower(xl)
+        zl_r = lower(zl)
         _scratch_lb = MadNLP.dual_lb(batch_solver._w2)
         @. _scratch_lb = abs(x_lr - xl_r) * zl_r
         maximum!(ws.sum_lb, _scratch_lb)
@@ -292,7 +300,9 @@ function update_termination_criteria!(batch_solver::AbstractBatchMPCSolver{T}) w
         fill!(ws.sum_lb, zero(T))
     end
     if nub > 0
-        xu_r = upper(xu); x_ur = upper(x); zu_r = upper(zu)
+        xu_r = upper(xu)
+        x_ur = upper(x)
+        zu_r = upper(zu)
         _scratch_ub = MadNLP.dual_ub(batch_solver._w2)
         @. _scratch_ub = abs(xu_r - x_ur) * zu_r
         maximum!(ws.sum_ub, _scratch_ub)
@@ -458,13 +468,16 @@ function apply_step!(batch_solver::AbstractBatchMPCSolver)
     zl, zu, d = batch_solver.zl, batch_solver.zu, batch_solver.d
     batch_size = batch_solver.batch_size
     nlb, nub = d.nlb, d.nub
-    n, m = d.n, d.m
 
     # x += alpha_p * dx
-    MadNLP.full(x) .+= ws.alpha_p .* MadNLP.primal(d)
+    _x = MadNLP.full(x)
+    _dx = MadNLP.primal(d)
+    @. _x = muladd(ws.alpha_p, _dx, _x)
 
     # y += alpha_d * d_dual
-    MadNLP.full(batch_solver.y) .+= ws.alpha_d .* MadNLP.dual(d)
+    _y = MadNLP.full(batch_solver.y)
+    _dy = MadNLP.dual(d)
+    @. _y = muladd(ws.alpha_d, _dy, _y)
 
     # zl_r += alpha_d * dzl, zu_r += alpha_d * dzu
     if nlb > 0

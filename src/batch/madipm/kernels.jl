@@ -126,14 +126,14 @@ function get_complementarity_measure!(solver::AbstractBatchMPCSolver)
     x_ur = upper(solver.x)
     zu_r = upper(solver.zu)
 
-    _scratch_lb = MadNLP.dual_lb(solver._w2)
-    @. _scratch_lb = (x_lr - xl_r) * zl_r
-    sum!(ws.sum_lb, _scratch_lb)
-
-    _scratch_ub = MadNLP.dual_ub(solver._w2)
-    @. _scratch_ub = (xu_r - x_ur) * zu_r
-    sum!(ws.sum_ub, _scratch_ub)
-
+    ws.sum_lb .= mapreduce(
+        (x, xl, z) -> (x - xl) * z, +, x_lr, xl_r, zl_r;
+        dims=1, init=zero(T),
+    )
+    ws.sum_ub .= mapreduce(
+        (xu, x, z) -> (xu - x) * z, +, xu_r, x_ur, zu_r;
+        dims=1, init=zero(T),
+    )
     @. ws.mu_curr = (ws.sum_lb + ws.sum_ub) / (nlb + nub)
     return ws.mu_curr
 end
@@ -164,7 +164,7 @@ function get_affine_complementarity_measure!(solver::AbstractBatchMPCSolver, alp
     sum!(ws.sum_lb, _scratch_lb)
 
     _scratch_ub = MadNLP.dual_ub(solver._w2)
-    @. _scratch_ub = (xu_r - x_ur - alpha_p * dx_ur) * (zu_r + alpha_d * dzub)
+    @. _scratch_ub = (xu_r - (x_ur + alpha_p * dx_ur)) * (zu_r + alpha_d * dzub)
     sum!(ws.sum_ub, _scratch_ub)
 
     @. ws.mu_affine = (ws.sum_lb + ws.sum_ub) / (nlb + nub)
@@ -194,26 +194,18 @@ function get_fraction_to_boundary_step!(batch_solver::AbstractBatchMPCSolver)
     zl, zu, d = batch_solver.zl, batch_solver.zu, batch_solver.d
     nlb, nub = d.nlb, d.nub
     T = eltype(ws.alpha_p)
-    inf_val = T(Inf)
 
+    # can't use mapreduce since tau is (1, bs), not (nlb, bs)
     if nlb > 0
-        _dx_lr = xp_lr(d); _xl_r = lower(xl); _x_lr = lower(x)
-        _dzlb = MadNLP.dual_lb(d); _zl_r = lower(zl)
-        _scratch_lb = MadNLP.dual_lb(batch_solver._w2)
+        _dx_lr = xp_lr(d); _xl_r = lower(xl); _x_lr = lower(x)  # (nlb, bs)
+        _dzlb = MadNLP.dual_lb(d); _zl_r = lower(zl)              # (nlb, bs)
+        _scratch_lb = MadNLP.dual_lb(batch_solver._w2)             # (nlb, bs)
 
-        map!(
-            (dx, xl, x) -> dx < 0 ? (xl - x) / dx : inf_val,
-            _scratch_lb, _dx_lr, _xl_r, _x_lr,
-        )
+        @. _scratch_lb = ifelse(_dx_lr < 0, (-_x_lr + _xl_r) * ws.tau / _dx_lr, T(Inf))
         minimum!(ws.alpha_xl, _scratch_lb)
-        @. ws.alpha_xl *= ws.tau
 
-        map!(
-            (dz, z) -> dz < 0 ? -z / dz : inf_val,
-            _scratch_lb, _dzlb, _zl_r,
-        )
+        @. _scratch_lb = ifelse(_dzlb < 0, (-_zl_r) * ws.tau / _dzlb, T(Inf))
         minimum!(ws.alpha_zl, _scratch_lb)
-        @. ws.alpha_zl *= ws.tau
     else
         fill!(ws.alpha_xl, one(T))
         fill!(ws.alpha_zl, one(T))
@@ -224,19 +216,11 @@ function get_fraction_to_boundary_step!(batch_solver::AbstractBatchMPCSolver)
         _dzub = MadNLP.dual_ub(d); _zu_r = upper(zu)
         _scratch_ub = MadNLP.dual_ub(batch_solver._w2)
 
-        map!(
-            (dx, xu, x) -> dx > 0 ? (xu - x) / dx : inf_val,
-            _scratch_ub, _dx_ur, _xu_r, _x_ur,
-        )
+        @. _scratch_ub = ifelse(_dx_ur > 0, (-_x_ur + _xu_r) * ws.tau / _dx_ur, T(Inf))
         minimum!(ws.alpha_xu, _scratch_ub)
-        @. ws.alpha_xu *= ws.tau
 
-        map!(
-            (dz, z) -> (dz < 0) & (z + dz < 0) ? -z / dz : inf_val,
-            _scratch_ub, _dzub, _zu_r,
-        )
+        @. _scratch_ub = ifelse((_dzub < 0) & (_zu_r + _dzub < 0), (-_zu_r) * ws.tau / _dzub, T(Inf))
         minimum!(ws.alpha_zu, _scratch_ub)
-        @. ws.alpha_zu *= ws.tau
     else
         fill!(ws.alpha_xu, one(T))
         fill!(ws.alpha_zu, one(T))

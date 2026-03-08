@@ -208,6 +208,11 @@ end
 
 
 
+function MadNLP.n_variables(bcb::UniformBatchCallback{T, VT, MT, VI, BM, FH}) where {T, VT, MT, VI, BM, FH<:MadNLP.MakeParameter}
+    return length(bcb.fixed_handler.free)
+end
+MadNLP.n_variables(bcb::UniformBatchCallback) = bcb.nvar
+
 function MadNLP._jac_sparsity_wrapper!(bcb::UniformBatchCallback, I::AbstractVector, J::AbstractVector)
     copyto!(I, bcb.jac_I)
     copyto!(J, bcb.jac_J)
