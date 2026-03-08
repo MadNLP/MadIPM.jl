@@ -131,7 +131,7 @@ function get_complementarity_measure!(solver::AbstractBatchMPCSolver)
     sum!(ws.sum_lb, _scratch_lb)
 
     _scratch_ub = MadNLP.dual_ub(solver._w2)
-    @. _scratch_ub = (x_ur - xu_r) * zu_r
+    @. _scratch_ub = (xu_r - x_ur) * zu_r
     sum!(ws.sum_ub, _scratch_ub)
 
     @. ws.mu_curr = (ws.sum_lb + ws.sum_ub) / (nlb + nub)
