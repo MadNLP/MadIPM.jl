@@ -6,12 +6,19 @@ using NLPModels
 using QuadraticModels
 using CUDA
 using CUDA.CUSPARSE
+using CUDSS
 using KernelAbstractions
 import QuadraticModels: SparseMatrixCOO
 import MadIPM
+import MadNLP
 
 include("cuda_wrapper.jl")
+include("cuda_batch_kernels.jl")
 include("operators.jl")
+
+function MadIPM._csc_with_nzval(A::CUSPARSE.CuSparseMatrixCSC, nzval, n)
+    return CUSPARSE.CuSparseMatrixCSC(A.colPtr, A.rowVal, nzval, (n, n))
+end
 
 @kernel function _fill_sparse_structure!(rows, cols, Ap, Aj, Ax)
     i = @index(Global, Linear)

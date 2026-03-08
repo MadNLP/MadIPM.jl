@@ -16,7 +16,19 @@ include("KKT/normalkkt.jl")
 include("linear_solver.jl")
 include("solver.jl")
 
-export MPCSolver, madipm
+include("batch/utils.jl")
+include("batch/madnlp/rhs.jl")
+include("batch/madnlp/callback.jl")
+include("batch/madnlp/kkt.jl")
+include("batch/structure.jl")
+include("batch/madnlp/linear_solver.jl")
+include("batch/madnlp/kernels.jl")
+include("batch/madnlp/initialization.jl")
+include("batch/madnlp/nlpmodels.jl")
+include("batch/madipm/kernels.jl")
+include("batch/madipm/solver.jl")
+
+export MPCSolver, madipm, madipm_batch, madipm_foreach
 
 MadNLP.madsuite(::Val{:madipm}, args...; kwargs...) = madipm(args...; kwargs...)
 

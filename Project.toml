@@ -14,16 +14,21 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [weakdeps]
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+CUDSS = "45b445bb-4962-46a0-9369-b4df9d0f772e"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 MadNLPGPU = "d72a61cc-809d-412f-99be-fd81f4b8a598"
 MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
 
+[sources]
+QuadraticModels = {rev = "mk/rhsbatch", url = "https://github.com/klamike/QuadraticModels.jl.git"}
+
 [extensions]
-MadIPMCUDAExt = ["CUDA", "KernelAbstractions", "MadNLPGPU"]
+MadIPMCUDAExt = ["CUDA", "CUDSS", "KernelAbstractions", "MadNLPGPU"]
 MadIPMMathOptInterfaceExt = "MathOptInterface"
 
 [compat]
 CUDA = "5.4.0"
+CUDSS = "0.6"
 KernelAbstractions = "0.9"
 LDLFactorizations = "0.10.1"
 LinearAlgebra = "1.10"
@@ -39,8 +44,13 @@ Test = "1.10"
 julia = "1.10"
 
 [extras]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+CUDSS = "45b445bb-4962-46a0-9369-b4df9d0f772e"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+MadNLPGPU = "d72a61cc-809d-412f-99be-fd81f4b8a598"
 MadNLPTests = "b52a2a03-04ab-4a5f-9698-6a2deff93217"
+MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["CUDA", "KernelAbstractions", "MadNLPTests", "MadNLPGPU", "MathOptInterface", "Test"]
+test = ["CUDA", "CUDSS", "KernelAbstractions", "MadNLPTests", "MadNLPGPU", "MathOptInterface", "Test"]
