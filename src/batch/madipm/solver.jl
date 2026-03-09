@@ -381,6 +381,7 @@ function solve_system!(
             view(MadNLP.full(p), :, i) .= zero(T)
         end
     end
+    # FIXME: per-instance reduction?
     norm_w = norm(MadNLP.full(w), Inf)
     norm_p = norm(MadNLP.full(p), Inf)
 

@@ -181,7 +181,7 @@ end
 function MadNLP.factorize_kkt!(bkkt::SparseUniformBatchKKTSystem)
     na = bkkt.active_batch_size[]
     nzvals = bkkt.aug_com_nzvals
-    @inbounds for j in 1:na
+    @inbounds for j in 1:na  # FIXME: refactor to avoid `na` launches
         i = bkkt.batch_map_rev[j]
         i != j && (view(nzvals, :, j) .= view(nzvals, :, i))
     end

@@ -85,7 +85,7 @@ function NLPModels.hprod!(
     return bHv
 end
 
-function _expand_symmetric_coo(H::SparseMatrixCOO{Tv, Ti}) where {Tv, Ti}
+function _expand_symmetric_coo(H::SparseMatrixCOO{Tv, Ti}) where {Tv, Ti}  # FIXME: allocates
     rows, cols, vals = H.rows, H.cols, H.vals
     m, n = size(H)
     offdiag = findall(i -> rows[i] != cols[i], 1:length(rows))
