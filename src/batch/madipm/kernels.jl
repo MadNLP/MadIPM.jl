@@ -94,7 +94,7 @@ function set_aug_diagonal_reg!(kkt, solver::AbstractBatchMPCSolver)
 
     kkt.reg .= solver.del_w
     du_diag(kkt) .= solver.del_c
-    
+
     kkt.l_diag .= xl_r .- x_lr
     kkt.u_diag .= x_ur .- xu_r
 
