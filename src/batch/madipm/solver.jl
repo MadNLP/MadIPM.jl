@@ -204,7 +204,8 @@ function initialize!(batch_solver::AbstractBatchMPCSolver{T}) where T
         batch_solver.xu,
         MadNLP.full(batch_solver.y),
         MadNLP.full(batch_solver.rhs),
-        bcb.ind_ineq;
+        bcb.ind_ineq,
+        ws.bx;
         tol=opt.bound_relax_factor,
         bound_push=opt.bound_push,
         bound_fac=opt.bound_fac,
@@ -221,6 +222,7 @@ function initialize!(batch_solver::AbstractBatchMPCSolver{T}) where T
             MadNLP.full(batch_solver.rhs),
             bcb.ind_ineq,
             T(opt.nlp_scaling_max_gradient),
+            ws.bx,
         )
     end
 

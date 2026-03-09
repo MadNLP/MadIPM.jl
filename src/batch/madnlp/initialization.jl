@@ -12,7 +12,8 @@ function MadNLP.initialize!(
     xu,
     y,
     rhs,
-    ind_ineq;
+    ind_ineq,
+    bx_buffer;
     tol=1e-8,
     bound_push=1e-2,
     bound_fac=1e-2,
@@ -35,7 +36,8 @@ function MadNLP.initialize!(
     x0 .= MadNLP._initialize_variables!.(x0, lvar, uvar, bound_push, bound_fac)
 
     x_full = MadNLP._update_x!(bcb, x0)
-    MadNLP._eval_cons_wrapper!(bcb, x_full, bcb.con_buffer)
+    copyto!(bx_buffer, x_full)
+    MadNLP._eval_cons_wrapper!(bcb, bx_buffer, bcb.con_buffer)
 
     MadNLP.slack(xl) .= view(lcon, ind_ineq, :)
     MadNLP.slack(xu) .= view(ucon, ind_ineq, :)
@@ -83,15 +85,17 @@ end
 function MadNLP.set_scaling!(
     cb::UniformBatchCallback,
     x, xl, xu, y, rhs, ind_ineq, nlp_scaling_max_gradient,
+    bx_buffer,
 )
     x0 = MadNLP.variable(x)
     x_full = MadNLP._update_x!(cb, x0)
+    copyto!(bx_buffer, x_full)
 
-    jac_free = MadNLP._eval_jac_wrapper!(cb, x_full, cb.jac_buffer)
+    jac_free = MadNLP._eval_jac_wrapper!(cb, bx_buffer, cb.jac_buffer)
     MadNLP.set_con_scale_sparse!(cb.con_scale, cb.jac_I, jac_free, nlp_scaling_max_gradient)
     MadNLP.set_jac_scale_sparse!(cb.jac_scale, cb.con_scale, cb.jac_I)
 
-    MadNLP._eval_grad_f_wrapper!(cb, x_full, cb.grad_buffer)
+    MadNLP._eval_grad_f_wrapper!(cb, bx_buffer, cb.grad_buffer)
     MadNLP.set_obj_scale!(cb.obj_scale, cb.grad_buffer, nlp_scaling_max_gradient)
 
     con_scale_slk = @view(cb.con_scale[ind_ineq, :])
