@@ -16,4 +16,3 @@ abstract type AbstractBatchKKTSystem{T} end
 end
 
 include("Sparse/augmented.jl")
-include("Sparse/normal.jl")
