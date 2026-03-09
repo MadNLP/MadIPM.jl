@@ -208,7 +208,7 @@ function get_affine_complementarity_measure(solver::MadNLP.AbstractMadNLPSolver,
 end
 
 function update_barrier!(rule::Mehrotra, solver, mu_affine)
-    has_inequalities = (length(solver.ind_llb) + length(solver.ind_uub)) > 0
+    has_inequalities = (solver.nlb + solver.nub) > 0
     mu_curr = get_complementarity_measure(solver)             # μ = y' s / m
     sigma = if has_inequalities
         clamp((mu_affine / mu_curr)^3, 1e-6, 10.0)
