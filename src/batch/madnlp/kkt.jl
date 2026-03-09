@@ -27,7 +27,8 @@ struct SparseUniformBatchKKTSystem{T, LS, VT, MT, VI, VI32, SMT} <: AbstractBatc
     # J^T scatter (for jtprod! and mul!)
     jt_scatter::SMT         # (n_tot × n_jac_aug) scatter: S[var_idx, k] = 1
     jt_nz_map::VI           # nzVals row indices for Jacobian entries
-    jt_con_map::VI          # maps each Jac nonzero to its constraint index
+    jt_con_map::VI          # maps each Jac nonzero to its constraint index (1:m)
+    jt_con_map_full::VI     # jt_con_map offset by n_tot (for indexing into full KKT vector)
     jt_buffer::MT           # (n_jac_aug × batch_size) buffer for jtprod
     # J scatter (for mul!)
     j_scatter::SMT          # (m × n_jac_aug) scatter: S[con_idx, k] = 1
@@ -124,6 +125,8 @@ function MadNLP.create_kkt_system(
     jt_scatter, jt_nz_map, jt_con_map, jt_buffer = _build_scatter(
         I, J, jac_range, n_tot, nzVals, aug_csc_map, batch_size,
     )
+    jt_con_map_full = similar(jt_con_map)
+    jt_con_map_full .= jt_con_map .+ Int32(n_tot)
     j_scatter, _, j_var_map, j_buffer = _build_jac_scatter(
         I, J, jac_range, n_tot, m, nzVals, aug_csc_map, batch_size,
     )
@@ -151,7 +154,7 @@ function MadNLP.create_kkt_system(
         aug_com_nzvals, batch_csc_map, n_tot, m, n_hess,
         reg, l_diag, u_diag, l_lower, u_lower,
         hess_scatter, hess_nz_map, hess_var_map, hess_buffer,
-        jt_scatter, jt_nz_map, jt_con_map, jt_buffer,
+        jt_scatter, jt_nz_map, jt_con_map, jt_con_map_full, jt_buffer,
         j_scatter, j_var_map, j_buffer,
         _mul_w_primal, _mul_w_dual,
         batch_map, batch_map_rev, active_batch_size,
@@ -263,7 +266,7 @@ function MadNLP.factorize_wrapper!(batch_solver::AbstractBatchMPCSolver)
 end
 
 function MadNLP.jtprod!(res::AbstractMatrix, bkkt::SparseUniformBatchKKTSystem, y::BatchVector)
-    bkkt.jt_buffer .= view(bkkt.nzVals, bkkt.jt_nz_map, :) .* MadNLP.full(y)[bkkt.jt_con_map, :]
+    @views bkkt.jt_buffer .= bkkt.nzVals[bkkt.jt_nz_map, :] .* MadNLP.full(y)[bkkt.jt_con_map, :]
     mul!(res, bkkt.jt_scatter, bkkt.jt_buffer)
     return res
 end
@@ -358,17 +361,18 @@ function LinearAlgebra.mul!(
     wd = bkkt._mul_w_dual
 
     # mul!(primal(w), Symmetric(hess_com, :L), primal(x), alpha, beta)
-    bkkt.hess_buffer .= view(nzV, bkkt.hess_nz_map, :) .* MadNLP.primal(x)[bkkt.hess_var_map, :]
+    xv = MadNLP.full(x)
+    @views bkkt.hess_buffer .= nzV[bkkt.hess_nz_map, :] .* xv[bkkt.hess_var_map, :]
     mul!(wp, bkkt.hess_scatter, bkkt.hess_buffer)
     MadNLP.primal(w) .= beta .* MadNLP.primal(w) .+ alpha .* wp
 
     # mul!(primal(w), jac_com', dual(x), alpha, one(T))
-    bkkt.jt_buffer .= view(nzV, bkkt.jt_nz_map, :) .* MadNLP.dual(x)[bkkt.jt_con_map, :]
+    @views bkkt.jt_buffer .= nzV[bkkt.jt_nz_map, :] .* xv[bkkt.jt_con_map_full, :]
     mul!(wp, bkkt.jt_scatter, bkkt.jt_buffer)
     MadNLP.primal(w) .+= alpha .* wp
 
     # mul!(dual(w), jac_com, primal(x), alpha, beta)
-    bkkt.j_buffer .= view(nzV, bkkt.jt_nz_map, :) .* MadNLP.primal(x)[bkkt.j_var_map, :]
+    @views bkkt.j_buffer .= nzV[bkkt.jt_nz_map, :] .* xv[bkkt.j_var_map, :]
     mul!(wd, bkkt.j_scatter, bkkt.j_buffer)
     MadNLP.dual(w) .= beta .* MadNLP.dual(w) .+ alpha .* wd
     _kktmul!(w, x, bkkt.reg, du_diag(bkkt), bkkt.l_lower, bkkt.u_lower, bkkt.l_diag, bkkt.u_diag, alpha, beta)

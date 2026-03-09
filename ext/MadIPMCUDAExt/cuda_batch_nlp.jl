@@ -161,6 +161,10 @@ function Base.convert(::Type{BatchQuadraticModel{T, MT}}, bnlp::BatchQuadraticMo
     _hess_sym_nzidx_gpu = CuVector{Int}(bnlp._hess_sym_nzidx)
 
     _HX_gpu = CUDA.zeros(T, nvar, nbatch)
+    nnzj = bnlp.meta.nnzj
+    sym_nnzh = size(bnlp._hess_buffer, 1)
+    _jac_buffer_gpu = CUDA.zeros(T, nnzj, nbatch)
+    _hess_buffer_gpu = CUDA.zeros(T, sym_nnzh, nbatch)
 
     VT = typeof(c0_batch_gpu)
     VI = typeof(hess_rows_gpu)
@@ -186,6 +190,6 @@ function Base.convert(::Type{BatchQuadraticModel{T, MT}}, bnlp::BatchQuadraticMo
         hess_rows_gpu, hess_cols_gpu,
         _jac_scatter_gpu, _jact_scatter_gpu, _hess_scatter_gpu,
         _hess_sym_gather_cols_gpu, _hess_sym_nzidx_gpu,
-        _HX_gpu,
+        _HX_gpu, _jac_buffer_gpu, _hess_buffer_gpu,
     )
 end

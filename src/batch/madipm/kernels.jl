@@ -244,25 +244,6 @@ function update_step!(rule::Union{ConservativeStep, AdaptiveStep}, batch_solver:
     return
 end
 
-function _argmin_columns!(
-    out_val::AbstractMatrix{T}, out_idx::AbstractMatrix{Int32},
-    parent_data::AbstractMatrix{T}, offset::Int, nrows::Int,
-) where T
-    @inbounds for j in axes(out_val, 2)
-        min_val = T(Inf)
-        min_idx = Int32(0)
-        for i in 1:nrows
-            v = parent_data[offset + i, j]
-            if v < min_val
-                min_val = v
-                min_idx = Int32(i)
-            end
-        end
-        out_val[1, j] = min_val
-        out_idx[1, j] = min_idx
-    end
-end
-
 function _mehrotra_correct_steps!(
     alpha_p, alpha_d, mu,
     val_xl, idx_xl, val_xu, idx_xu,
@@ -281,11 +262,11 @@ function _mehrotra_correct_steps!(
         if max_ap < one(T)
             i_xl = idx_xl[1, j]
             i_xu = idx_xu[1, j]
-            if val_xl[1, j] <= val_xu[1, j] && i_xl > Int32(0)
+            if val_xl[1, j] <= val_xu[1, j] && i_xl > 0
                 idx = ind_lb[i_xl]
                 zl_stepped = zl_vals[idx, j] + max_ad * d_vals[dlb_off + i_xl, j]
                 corrected_p = (x_vals[idx, j] - xl_vals[idx, j] - mu_j / zl_stepped) / (-d_vals[idx, j])
-            elseif i_xu > Int32(0)
+            elseif i_xu > 0
                 idx = ind_ub[i_xu]
                 zu_stepped = zu_vals[idx, j] + max_ad * d_vals[dub_off + i_xu, j]
                 corrected_p = (xu_vals[idx, j] - x_vals[idx, j] - mu_j / zu_stepped) / d_vals[idx, j]
@@ -298,11 +279,11 @@ function _mehrotra_correct_steps!(
         if max_ad < one(T)
             i_zl = idx_zl[1, j]
             i_zu = idx_zu[1, j]
-            if val_zl[1, j] <= val_zu[1, j] && i_zl > Int32(0)
+            if val_zl[1, j] <= val_zu[1, j] && i_zl > 0
                 idx = ind_lb[i_zl]
                 x_gap = x_vals[idx, j] + max_ap * d_vals[idx, j] - xl_vals[idx, j]
                 corrected_d = -(zl_vals[idx, j] - mu_j / x_gap) / d_vals[dlb_off + i_zl, j]
-            elseif i_zu > Int32(0)
+            elseif i_zu > 0
                 idx = ind_ub[i_zu]
                 x_gap = xu_vals[idx, j] - x_vals[idx, j] - max_ap * d_vals[idx, j]
                 corrected_d = -(zu_vals[idx, j] - mu_j / x_gap) / d_vals[dub_off + i_zu, j]
@@ -328,7 +309,6 @@ function update_step!(rule::MehrotraAdaptiveStep, batch_solver::AbstractBatchMPC
     mu_full = ws.mu_curr
     @. mu_full = ws.mu_affine / gamma_a
 
-    w2_vals = batch_solver._w2.values
     dlb_off = d.n + d.m
     dub_off = d.n + d.m + d.nlb
 
@@ -338,13 +318,17 @@ function update_step!(rule::MehrotraAdaptiveStep, batch_solver::AbstractBatchMPC
         _dzlb = MadNLP.dual_lb(d); _zl_r = lower(zl)
 
         map!((dx, xl, x) -> dx < 0 ? (xl - x) / dx : T(Inf), _scratch_lb, _dx_lr, _xl_r, _x_lr)
-        _argmin_columns!(ws.alpha_xl, ws.idx_xl, w2_vals, dlb_off, nlb)
+        _vals, _inds = findmin(_scratch_lb; dims=1)
+        copyto!(ws.alpha_xl, _vals)
+        ws.idx_xl .= getindex.(_inds, 1)
 
         map!((dz, z) -> dz < 0 ? -z / dz : T(Inf), _scratch_lb, _dzlb, _zl_r)
-        _argmin_columns!(ws.alpha_zl, ws.idx_zl, w2_vals, dlb_off, nlb)
+        _vals, _inds = findmin(_scratch_lb; dims=1)
+        copyto!(ws.alpha_zl, _vals)
+        ws.idx_zl .= getindex.(_inds, 1)
     else
-        fill!(ws.alpha_xl, one(T)); fill!(ws.idx_xl, Int32(0))
-        fill!(ws.alpha_zl, one(T)); fill!(ws.idx_zl, Int32(0))
+        fill!(ws.alpha_xl, one(T)); fill!(ws.idx_xl, 0)
+        fill!(ws.alpha_zl, one(T)); fill!(ws.idx_zl, 0)
     end
 
     if nub > 0
@@ -353,13 +337,17 @@ function update_step!(rule::MehrotraAdaptiveStep, batch_solver::AbstractBatchMPC
         _dzub = MadNLP.dual_ub(d); _zu_r = upper(zu)
 
         map!((dx, xu, x) -> dx > 0 ? (xu - x) / dx : T(Inf), _scratch_ub, _dx_ur, _xu_r, _x_ur)
-        _argmin_columns!(ws.alpha_xu, ws.idx_xu, w2_vals, dub_off, nub)
+        _vals, _inds = findmin(_scratch_ub; dims=1)
+        copyto!(ws.alpha_xu, _vals)
+        ws.idx_xu .= getindex.(_inds, 1)
 
         map!((dz, z) -> (dz < 0) & (z + dz < 0) ? -z / dz : T(Inf), _scratch_ub, _dzub, _zu_r)
-        _argmin_columns!(ws.alpha_zu, ws.idx_zu, w2_vals, dub_off, nub)
+        _vals, _inds = findmin(_scratch_ub; dims=1)
+        copyto!(ws.alpha_zu, _vals)
+        ws.idx_zu .= getindex.(_inds, 1)
     else
-        fill!(ws.alpha_xu, one(T)); fill!(ws.idx_xu, Int32(0))
-        fill!(ws.alpha_zu, one(T)); fill!(ws.idx_zu, Int32(0))
+        fill!(ws.alpha_xu, one(T)); fill!(ws.idx_xu, 0)
+        fill!(ws.alpha_zu, one(T)); fill!(ws.idx_zu, 0)
     end
 
     _mehrotra_correct_steps!(

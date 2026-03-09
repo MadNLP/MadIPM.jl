@@ -1,7 +1,7 @@
 name = "MadIPM"
 uuid = "4406d55e-1099-4ca6-ac6a-6cf051b10024"
-authors = ["François Pacaud <francoispacaud8@gmail.com>", "Alexis Montoison <amontoison@anl.gov>"]
 version = "0.2.0"
+authors = ["François Pacaud <francoispacaud8@gmail.com>", "Alexis Montoison <amontoison@anl.gov>"]
 
 [deps]
 LDLFactorizations = "40e66cde-538c-5869-a4ad-c39174c6795b"
@@ -21,7 +21,8 @@ MadNLPGPU = "d72a61cc-809d-412f-99be-fd81f4b8a598"
 MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
 
 [sources]
-QuadraticModels = {rev = "mk/rhsbatch", url = "https://github.com/klamike/QuadraticModels.jl.git"}
+NLPModels = {path = "../NLPModels.jl"}
+QuadraticModels = {path = "../QuadraticModels.jl"}
 
 [extensions]
 MadIPMCUDAExt = ["Atomix", "CUDA", "CUDSS", "KernelAbstractions", "MadNLPGPU"]

@@ -1,6 +1,5 @@
 using MadNLPGPU
 import LinearAlgebra: BlasFloat
-import MadNLP: getptr
 
 @kernel function _transfer_to_map!(dest, to_map, src)
     k = @index(Global, Linear)

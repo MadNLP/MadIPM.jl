@@ -1,15 +1,17 @@
-@kernel function _batch_set_con_scale_sparse_kernel!(
-    con_scale,
-    @Const(ptr),
-    @Const(inds),
-    @Const(jac_buffer),
-)
-    (index, j) = @index(Global, NTuple)
-    @inbounds begin
-        rng = ptr[index]:ptr[index+1]-1
-        for k in rng
-            (row, i) = inds[k]
-            con_scale[row, j] = max(con_scale[row, j], abs(jac_buffer[i, j]))
+@kernel function _set_con_scale_kernel!(con_scale, @Const(jac_I), @Const(jac_buffer))
+    k = @index(Global, Linear)
+    row = jac_I[k]
+    bs = size(jac_buffer, 2)
+    @inbounds for j in 1:bs
+        val = abs(jac_buffer[k, j])
+        # CAS loop for atomic max (CUDA.atomic_max! only supports integers)
+        old = con_scale[row, j]
+        while val > old
+            result = Atomix.@atomicreplace con_scale[row, j] old => val
+            old = result.old
+            if result.success
+                break
+            end
         end
     end
 end
@@ -19,70 +21,13 @@ function MadNLP._set_con_scale_sparse!(
     jac_I::CuVector{<:Integer},
     jac_buffer::CuMatrix{T},
 ) where T
-    ind_jac = CuVector{Int}(1:length(jac_I))
-    inds = map((i, j) -> (i, j), jac_I, ind_jac)
-    !isempty(inds) && sort!(inds)
-    ptr = getptr(inds; by = ((x1, x2), (y1, y2)) -> x1 != y1)
-    if length(ptr) > 1
+    nnzj = length(jac_I)
+    if nnzj > 0
         backend = CUDABackend()
-        _batch_set_con_scale_sparse_kernel!(backend)(
-            con_scale,
-            ptr,
-            inds,
-            jac_buffer;
-            ndrange = (length(ptr) - 1, size(con_scale, 2)),
-        )
+        _set_con_scale_kernel!(backend)(con_scale, jac_I, jac_buffer; ndrange=nnzj)
         KernelAbstractions.synchronize(backend)
     end
     return con_scale
-end
-
-@kernel function _block_argmin_kernel!(out_val, out_idx, @Const(parent_data), offset, nrows)
-    tid = @index(Local, Linear)
-    j = @index(Group, Linear)
-    gs = @groupsize()[1]
-    T = eltype(out_val)
-
-    sval = @localmem T (64,)
-    sidx = @localmem Int32 (64,)
-
-    # Strided scan
-    local_min = T(Inf)
-    local_idx = Int32(0)
-    @inbounds begin
-        i = Int32(tid)
-        while i <= nrows
-            v = parent_data[offset + i, j]
-            if v < local_min
-                local_min = v
-                local_idx = i
-            end
-            i += Int32(gs)
-        end
-        sval[tid] = local_min
-        sidx[tid] = local_idx
-    end
-    @synchronize()
-
-    # Tree reduction
-    @inbounds begin
-        stride = Int32(gs) >> Int32(1)
-        while stride > Int32(0)
-            if Int32(tid) <= stride
-                if sval[tid + stride] < sval[tid]
-                    sval[tid] = sval[tid + stride]
-                    sidx[tid] = sidx[tid + stride]
-                end
-            end
-            @synchronize()
-            stride >>= Int32(1)
-        end
-
-        if tid == 1
-            out_val[1, j] = sval[1]
-            out_idx[1, j] = sidx[1]
-        end
-    end
 end
 
 @kernel function _mehrotra_correction_kernel!(
@@ -135,23 +80,6 @@ end
         end
     end
     @inbounds alpha_d[1, j] = max(corrected_d, gamma_f * max_ad)
-end
-
-const _MEHROTRA_BLOCK = 64
-
-function MadIPM._argmin_columns!(
-    out_val::CuMatrix{T}, out_idx::CuMatrix{Int32},
-    parent_data::CuMatrix{T}, offset::Int, nrows::Int; threads_per_column = _MEHROTRA_BLOCK
-) where T
-    ncols = size(out_val, 2)
-    if ncols > 0 && nrows > 0
-        backend = CUDABackend()
-        _block_argmin_kernel!(backend, threads_per_column)(
-            out_val, out_idx, parent_data, Int32(offset), Int32(nrows);
-            ndrange = threads_per_column * ncols,
-        )
-        KernelAbstractions.synchronize(backend)
-    end
 end
 
 function MadIPM._mehrotra_correct_steps!(
