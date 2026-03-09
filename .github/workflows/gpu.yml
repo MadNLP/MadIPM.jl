@@ -19,7 +19,7 @@ jobs:
       labels: cuda
     strategy:
       matrix:
-        julia-version: ['lts', '1']
+        julia-version: ['1']
         julia-arch: [x64]
         hsl-version: ['2025.7.11']
 
