@@ -17,6 +17,7 @@ import MadNLP
 include("operators.jl")
 include("cuda_wrapper.jl")
 include("cuda_batch_kernels.jl")
+include("cuda_batch_nlp.jl")
 
 function MadIPM._csc_with_nzval(A::CUSPARSE.CuSparseMatrixCSC, nzval, n)
     return CUSPARSE.CuSparseMatrixCSC(A.colPtr, A.rowVal, nzval, (n, n))
