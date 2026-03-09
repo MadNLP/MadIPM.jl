@@ -5,8 +5,7 @@ import MadNLP: getptr
 @kernel function _transfer_to_map!(dest, to_map, src)
     k = @index(Global, Linear)
     @inbounds begin
-        # TODO: do we need Atomix?
-        dest[to_map[k]] += src[k]
+        Atomix.@atomic dest[to_map[k]] += src[k]
     end
 end
 
