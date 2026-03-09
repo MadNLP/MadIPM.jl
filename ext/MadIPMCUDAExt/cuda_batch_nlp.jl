@@ -1,4 +1,4 @@
-import QuadraticModels: ObjRHSBatchQuadraticModel, BatchQuadraticModel, QPData
+using QuadraticModels: ObjRHSBatchQuadraticModel, BatchQuadraticModel, QPData
 
 function NLPModels.obj!(
     bqp::ObjRHSBatchQuadraticModel{T, S, M1, M2, MT},

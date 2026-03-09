@@ -9,7 +9,7 @@ using CUDA.CUSPARSE
 using CUDSS
 using KernelAbstractions
 import Atomix
-import QuadraticModels: SparseMatrixCOO
+using QuadraticModels: SparseMatrixCOO
 import LinearAlgebra: BlasFloat
 import MadIPM
 import MadNLP
