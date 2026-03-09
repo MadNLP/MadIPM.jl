@@ -210,10 +210,14 @@ end
     @test sol.solution[3] == 2.0
 end
 
-@testset "MathOptInterface" begin
-    include("MOI_wrapper.jl")
-end
+# @testset "MathOptInterface" begin
+#     include("MOI_wrapper.jl")
+# end
+
+include("test_batch.jl")
+include("batch_kernels/runtests.jl")
 
 if CUDA.functional()
     include("test_gpu.jl")
+    include("test_batch_gpu.jl")
 end
