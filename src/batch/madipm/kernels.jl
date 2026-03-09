@@ -1,3 +1,21 @@
+function dual_objective!(dual_obj, y_vals, rhs_vals, zl_r, xl_r, zu_r, xu_r,
+                         scratch_m, scratch_lb, scratch_ub, sum_lb, sum_ub, nlb, nub)
+    @. scratch_m = y_vals * rhs_vals
+    sum!(dual_obj, scratch_m)
+    dual_obj .*= -one(eltype(dual_obj))
+    if nlb > 0
+        @. scratch_lb = zl_r * xl_r
+        sum!(sum_lb, scratch_lb)
+        dual_obj .+= sum_lb
+    end
+    if nub > 0
+        @. scratch_ub = zu_r * xu_r
+        sum!(sum_ub, scratch_ub)
+        dual_obj .-= sum_ub
+    end
+    return dual_obj
+end
+
 function set_initial_primal_rhs!(solver::AbstractBatchMPCSolver)
     p = solver.p
     fill!(MadNLP.full(p), 0.0)

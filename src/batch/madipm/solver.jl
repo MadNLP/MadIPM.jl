@@ -273,65 +273,27 @@ function update_termination_criteria!(batch_solver::AbstractBatchMPCSolver{T}) w
     bs = batch_solver.batch_size
     nlb, nub = batch_solver.d.nlb, batch_solver.d.nub
 
-    f_vals = MadNLP.full(batch_solver.f)
-    zl_vals = MadNLP.full(zl)
-    zu_vals = MadNLP.full(zu)
-    jacl_vals = MadNLP.full(batch_solver.jacl)
-    y_vals = MadNLP.full(batch_solver.y)
-    rhs_vals = MadNLP.full(batch_solver.rhs)
+    _scratch_n = MadNLP.primal(batch_solver._w2)
+    _scratch_m = MadNLP.dual(batch_solver._w2)
+    _scratch_lb = MadNLP.dual_lb(batch_solver._w2)
+    _scratch_ub = MadNLP.dual_ub(batch_solver._w2)
 
-    # inf_pr[i] = norm(c[:, i], Inf) / max(1, norm_b[i])
-    ws.inf_pr .= maximum(abs, MadNLP.full(batch_solver.c); dims=1)
+    get_inf_pr!(ws.inf_pr, MadNLP.full(batch_solver.c))
     @. ws.inf_pr /= max(one(T), ws.norm_b)
 
-    # inf_du[i] = max|f-zl+zu+jacl| / max(1, norm_c[i])
-    _scratch_n = MadNLP.primal(batch_solver._w2)
-    @. _scratch_n = abs(f_vals - zl_vals + zu_vals + jacl_vals)
-    maximum!(ws.inf_du, _scratch_n)
+    get_inf_du!(ws.inf_du, MadNLP.full(batch_solver.f), MadNLP.full(zl),
+                MadNLP.full(zu), MadNLP.full(batch_solver.jacl), _scratch_n)
     @. ws.inf_du /= max(one(T), ws.norm_c)
 
-    # inf_compl[i] = get_optimality_gap / max(1, norm_c[i])
-    if nlb > 0
-        x_lr = lower(x)
-        xl_r = lower(xl)
-        zl_r = lower(zl)
-        _scratch_lb = MadNLP.dual_lb(batch_solver._w2)
-        @. _scratch_lb = abs(x_lr - xl_r) * zl_r
-        maximum!(ws.sum_lb, _scratch_lb)
-    else
-        fill!(ws.sum_lb, zero(T))
-    end
-    if nub > 0
-        xu_r = upper(xu)
-        x_ur = upper(x)
-        zu_r = upper(zu)
-        _scratch_ub = MadNLP.dual_ub(batch_solver._w2)
-        @. _scratch_ub = abs(xu_r - x_ur) * zu_r
-        maximum!(ws.sum_ub, _scratch_ub)
-    else
-        fill!(ws.sum_ub, zero(T))
-    end
-    @. ws.inf_compl = max(ws.sum_lb, ws.sum_ub) / max(one(T), ws.norm_c)
+    get_inf_compl!(ws.inf_compl,
+        lower(x), lower(xl), lower(zl), upper(xu), upper(x), upper(zu),
+        _scratch_lb, _scratch_ub, ws.sum_lb, ws.sum_ub, nlb, nub)
+    @. ws.inf_compl /= max(one(T), ws.norm_c)
     @. ws.best_complementarity = min(ws.best_complementarity, ws.inf_compl)
 
-    _scratch_m = MadNLP.dual(batch_solver._w2)
-    @. _scratch_m = y_vals * rhs_vals
-    sum!(ws.dual_obj, _scratch_m)
-    ws.dual_obj .*= -one(T)
-    if nlb > 0
-        zl_r = lower(zl); xl_r = lower(xl)
-        _scratch_lb = MadNLP.dual_lb(batch_solver._w2)
-        @. _scratch_lb = zl_r * xl_r
-        sum!(ws.sum_lb, _scratch_lb)
-        ws.dual_obj .+= ws.sum_lb
-    end
-    if nub > 0
-        zu_r = upper(zu); xu_r = upper(xu)
-        _scratch_ub = MadNLP.dual_ub(batch_solver._w2)
-        @. _scratch_ub = zu_r * xu_r
-        sum!(ws.sum_ub, _scratch_ub)
-        ws.dual_obj .-= ws.sum_ub
-    end
+    dual_objective!(ws.dual_obj, MadNLP.full(batch_solver.y), MadNLP.full(batch_solver.rhs),
+        lower(zl), lower(xl), upper(zu), upper(xu),
+        _scratch_m, _scratch_lb, _scratch_ub, ws.sum_lb, ws.sum_ub, nlb, nub)
 
     ds = T(opt.divergence_scale)
     copyto!(ws.term_converged, 
