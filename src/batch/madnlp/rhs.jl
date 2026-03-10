@@ -7,6 +7,13 @@ struct BatchUnreducedKKTVector{T, MT<:AbstractMatrix{T}, VT<:AbstractVector{T}, 
     nub::Int
     ind_lb::VI
     ind_ub::VI
+    _primal::SubArray
+    _dual::SubArray
+    _primal_dual::SubArray
+    _dual_lb::SubArray
+    _dual_ub::SubArray
+    _xp_lr::SubArray
+    _xp_ur::SubArray
 end
 
 function BatchUnreducedKKTVector(
@@ -24,17 +31,26 @@ function BatchUnreducedKKTVector(
         views[i] = _madnlp_unsafe_column_wrap(values, total, col_start, VT)
     end
 
-    return BatchUnreducedKKTVector{T, MT, VT, typeof(ind_lb)}(values, views, n, m, nlb, nub, ind_lb, ind_ub)
+    return BatchUnreducedKKTVector{T, MT, VT, typeof(ind_lb)}(
+        values, views, n, m, nlb, nub, ind_lb, ind_ub,
+        view(values, 1:n, :),
+        view(values, n+1:n+m, :),
+        view(values, 1:n+m, :),
+        view(values, n+m+1:n+m+nlb, :),
+        view(values, n+m+nlb+1:n+m+nlb+nub, :),
+        view(values, ind_lb, :),
+        view(values, ind_ub, :),
+    )
 end
 
 MadNLP.full(bv::BatchUnreducedKKTVector) = bv.values
-MadNLP.primal(bv::BatchUnreducedKKTVector) = view(bv.values, 1:bv.n, :)
-MadNLP.dual(bv::BatchUnreducedKKTVector) = view(bv.values, bv.n+1:bv.n+bv.m, :)
-MadNLP.primal_dual(bv::BatchUnreducedKKTVector) = view(bv.values, 1:bv.n+bv.m, :)
-MadNLP.dual_lb(bv::BatchUnreducedKKTVector) = view(bv.values, bv.n+bv.m+1:bv.n+bv.m+bv.nlb, :)
-MadNLP.dual_ub(bv::BatchUnreducedKKTVector) = view(bv.values, bv.n+bv.m+bv.nlb+1:bv.n+bv.m+bv.nlb+bv.nub, :)
-xp_lr(bv::BatchUnreducedKKTVector) = view(bv.values, bv.ind_lb, :)
-xp_ur(bv::BatchUnreducedKKTVector) = view(bv.values, bv.ind_ub, :)
+MadNLP.primal(bv::BatchUnreducedKKTVector) = bv._primal
+MadNLP.dual(bv::BatchUnreducedKKTVector) = bv._dual
+MadNLP.primal_dual(bv::BatchUnreducedKKTVector) = bv._primal_dual
+MadNLP.dual_lb(bv::BatchUnreducedKKTVector) = bv._dual_lb
+MadNLP.dual_ub(bv::BatchUnreducedKKTVector) = bv._dual_ub
+xp_lr(bv::BatchUnreducedKKTVector) = bv._xp_lr
+xp_ur(bv::BatchUnreducedKKTVector) = bv._xp_ur
 
 struct BatchPrimalVector{T, MT<:AbstractMatrix{T}, VT<:AbstractVector{T}, VI}
     values::MT
@@ -43,6 +59,10 @@ struct BatchPrimalVector{T, MT<:AbstractMatrix{T}, VT<:AbstractVector{T}, VI}
     ns::Int
     ind_lb::VI
     ind_ub::VI
+    _variable::SubArray
+    _slack::SubArray
+    _lower::SubArray
+    _upper::SubArray
 end
 
 function BatchPrimalVector(
@@ -60,12 +80,18 @@ function BatchPrimalVector(
         views[i] = _madnlp_unsafe_column_wrap(values, total, col_start, VT)
     end
 
-    return BatchPrimalVector{T, MT, VT, typeof(ind_lb)}(values, views, nx, ns, ind_lb, ind_ub)
+    return BatchPrimalVector{T, MT, VT, typeof(ind_lb)}(
+        values, views, nx, ns, ind_lb, ind_ub,
+        view(values, 1:nx, :),
+        view(values, nx+1:nx+ns, :),
+        view(values, ind_lb, :),
+        view(values, ind_ub, :),
+    )
 end
 
-MadNLP.variable(bpv::BatchPrimalVector) = view(bpv.values, 1:bpv.nx, :)
-MadNLP.slack(bpv::BatchPrimalVector) = view(bpv.values, bpv.nx+1:bpv.nx+bpv.ns, :)
-lower(bpv::BatchPrimalVector) = view(bpv.values, bpv.ind_lb, :)
-upper(bpv::BatchPrimalVector) = view(bpv.values, bpv.ind_ub, :)
+MadNLP.variable(bpv::BatchPrimalVector) = bpv._variable
+MadNLP.slack(bpv::BatchPrimalVector) = bpv._slack
+lower(bpv::BatchPrimalVector) = bpv._lower
+upper(bpv::BatchPrimalVector) = bpv._upper
 MadNLP.full(bpv::BatchPrimalVector) = bpv.values
 MadNLP.primal(bpv::BatchPrimalVector) = bpv.values
