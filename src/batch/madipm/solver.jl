@@ -278,7 +278,7 @@ function update_termination_criteria!(batch_solver::AbstractBatchMPCSolver{T}) w
     _scratch_lb = MadNLP.dual_lb(batch_solver._w2)
     _scratch_ub = MadNLP.dual_ub(batch_solver._w2)
 
-    get_inf_pr!(ws.inf_pr, MadNLP.full(batch_solver.c))
+    get_inf_pr!(ws.inf_pr, MadNLP.full(batch_solver.c), _scratch_m)
     @. ws.inf_pr /= max(one(T), ws.norm_b)
 
     get_inf_du!(ws.inf_du, MadNLP.full(batch_solver.f), MadNLP.full(zl),

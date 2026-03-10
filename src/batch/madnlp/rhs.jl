@@ -52,9 +52,8 @@ MadNLP.dual_ub(bv::BatchUnreducedKKTVector) = bv._dual_ub
 xp_lr(bv::BatchUnreducedKKTVector) = bv._xp_lr
 xp_ur(bv::BatchUnreducedKKTVector) = bv._xp_ur
 
-struct BatchPrimalVector{T, MT<:AbstractMatrix{T}, VT<:AbstractVector{T}, VI}
+struct BatchPrimalVector{T, MT<:AbstractMatrix{T}, VI}
     values::MT
-    views::Vector{VT}
     nx::Int
     ns::Int
     ind_lb::VI
@@ -74,14 +73,8 @@ function BatchPrimalVector(
     values = MT(undef, total, batch_size)
     fill!(values, zero(T))
 
-    views = Vector{VT}(undef, batch_size)
-    for i in 1:batch_size
-        col_start = (i-1) * total + 1
-        views[i] = _madnlp_unsafe_column_wrap(values, total, col_start, VT)
-    end
-
-    return BatchPrimalVector{T, MT, VT, typeof(ind_lb)}(
-        values, views, nx, ns, ind_lb, ind_ub,
+    return BatchPrimalVector{T, MT, typeof(ind_lb)}(
+        values, nx, ns, ind_lb, ind_ub,
         view(values, 1:nx, :),
         view(values, nx+1:nx+ns, :),
         view(values, ind_lb, :),

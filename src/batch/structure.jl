@@ -86,19 +86,19 @@ mutable struct UniformBatchMPCSolver{T, MT, VT, VI, BM, BCB} <: AbstractBatchMPC
     _w1::BatchUnreducedKKTVector{T, MT, VT}
     _w2::BatchUnreducedKKTVector{T, MT, VT}
 
-    x::BatchPrimalVector{T, MT, VT}
-    xl::BatchPrimalVector{T, MT, VT}
-    xu::BatchPrimalVector{T, MT, VT}
-    zl::BatchPrimalVector{T, MT, VT}
-    zu::BatchPrimalVector{T, MT, VT}
-    f::BatchPrimalVector{T, MT, VT}
+    x::BatchPrimalVector{T, MT}
+    xl::BatchPrimalVector{T, MT}
+    xu::BatchPrimalVector{T, MT}
+    zl::BatchPrimalVector{T, MT}
+    zu::BatchPrimalVector{T, MT}
+    f::BatchPrimalVector{T, MT}
 
-    y::BatchVector{T, MT, VT}
-    c::BatchVector{T, MT, VT}
-    jacl::BatchVector{T, MT, VT}
-    rhs::BatchVector{T, MT, VT}
-    correction_lb::BatchVector{T, MT, VT}
-    correction_ub::BatchVector{T, MT, VT}
+    y::BatchVector{T, MT}
+    c::BatchVector{T, MT}
+    jacl::BatchVector{T, MT}
+    rhs::BatchVector{T, MT}
+    correction_lb::BatchVector{T, MT}
+    correction_ub::BatchVector{T, MT}
 
     workspace::UniformBatchWorkspace{T, VT, MT}
 

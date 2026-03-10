@@ -1,5 +1,6 @@
-function get_inf_pr!(inf_pr, c)
-    inf_pr .= maximum(abs, c; dims=1)
+function get_inf_pr!(inf_pr, c, scratch)
+    @. scratch = abs(c)
+    maximum!(inf_pr, scratch)
     return inf_pr
 end
 

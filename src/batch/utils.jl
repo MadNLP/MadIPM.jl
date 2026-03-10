@@ -101,9 +101,8 @@ function _build_hess_scatter(
     return scatter, nz_map, var_map, buffer
 end
 
-struct BatchVector{T, MT<:AbstractMatrix{T}, VT<:AbstractVector{T}}
+struct BatchVector{T, MT<:AbstractMatrix{T}}
     values::MT
-    views::Vector{VT}
 end
 
 MadNLP.full(bv::BatchVector) = bv.values
@@ -114,13 +113,7 @@ function BatchVector(
 ) where {T, MT<:AbstractMatrix{T}, VT<:AbstractVector{T}}
     values = MT(undef, len, batch_size)
     fill!(values, zero(T))
-
-    views = Vector{VT}(undef, batch_size)
-    for i in 1:batch_size
-        views[i] = _madnlp_unsafe_column_wrap(values, len, (i-1) * len + 1, VT)
-    end
-
-    return BatchVector{T, MT, VT}(values, views)
+    return BatchVector{T, MT}(values)
 end
 
 mutable struct BatchExecutionStats{T, VT<:AbstractVector{T}, MT<:AbstractMatrix{T}}
