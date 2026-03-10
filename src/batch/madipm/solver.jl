@@ -285,8 +285,7 @@ function update_termination_criteria!(batch_solver::AbstractBatchMPCSolver{T}) w
                 MadNLP.full(zu), MadNLP.full(batch_solver.jacl), _scratch_n)
     @. ws.inf_du /= max(one(T), ws.norm_c)
 
-    get_inf_compl!(ws.inf_compl,
-        lower(x), lower(xl), lower(zl), upper(xu), upper(x), upper(zu),
+    get_inf_compl!(ws.inf_compl, x, xl, zl, xu, zu,
         _scratch_lb, _scratch_ub, ws.sum_lb, ws.sum_ub, nlb, nub)
     @. ws.inf_compl /= max(one(T), ws.norm_c)
     @. ws.best_complementarity = min(ws.best_complementarity, ws.inf_compl)
@@ -296,23 +295,34 @@ function update_termination_criteria!(batch_solver::AbstractBatchMPCSolver{T}) w
         _scratch_m, _scratch_lb, _scratch_ub, ws.sum_lb, ws.sum_ub, nlb, nub)
 
     ds = T(opt.divergence_scale)
-    copyto!(ws.term_converged, 
-        vec(@. max(ws.inf_pr, ws.inf_du, ws.inf_compl) <= opt.tol))
-    copyto!(ws.term_infeasible,
-        vec(@. (ws.inf_compl > opt.divergence_tol * ws.best_complementarity
-            ) & (ws.dual_obj > max(ds * abs(ws.obj_val), one(T)))))
-    copyto!(ws.term_diverging, 
-        vec(@. ws.obj_val < -(opt.divergence_tol * max(ds, abs(ws.dual_obj), one(T)))))
+    tol = T(opt.tol)
+    div_tol = T(opt.divergence_tol)
+    Int_SOLVED = Int(MadNLP.SOLVE_SUCCEEDED)
+    Int_INFEASIBLE = Int(MadNLP.INFEASIBLE_PROBLEM_DETECTED)
+    Int_DIVERGING = Int(MadNLP.DIVERGING_ITERATES)
+    Int_REGULAR = Int(MadNLP.REGULAR)
+    @. ws._term_gpu = ifelse(
+        max(ws.inf_pr, ws.inf_du, ws.inf_compl) <= tol,
+        Int_SOLVED,
+        ifelse(
+            (ws.inf_compl > div_tol * ws.best_complementarity) &
+            (ws.dual_obj > max(ds * abs(ws.obj_val), one(T))),
+            Int_INFEASIBLE,
+            ifelse(
+                ws.obj_val < -(div_tol * max(ds, abs(ws.dual_obj), one(T))),
+                Int_DIVERGING,
+                Int_REGULAR,
+            ),
+        ),
+    )
+    copyto!(ws._term_cpu, vec(ws._term_gpu))
 
     walltime_hit = time() - bcnt.start_time[] >= opt.max_wall_time
     @inbounds for i in 1:bs
         ws.status[i] != MadNLP.REGULAR && continue
-        if ws.term_converged[i]
-            ws.status[i] = MadNLP.SOLVE_SUCCEEDED
-        elseif ws.term_infeasible[i]
-            ws.status[i] = MadNLP.INFEASIBLE_PROBLEM_DETECTED
-        elseif ws.term_diverging[i]
-            ws.status[i] = MadNLP.DIVERGING_ITERATES
+        code = MadNLP.Status(ws._term_cpu[i])
+        if code != MadNLP.REGULAR
+            ws.status[i] = code
         elseif bcnt.k[i] >= opt.max_iter
             ws.status[i] = MadNLP.MAXIMUM_ITERATIONS_EXCEEDED
         elseif walltime_hit
@@ -343,17 +353,24 @@ function solve_system!(
             view(MadNLP.full(p), :, i) .= zero(T)
         end
     end
-    # FIXME: per-instance reduction?
-    norm_w = norm(MadNLP.full(w), Inf)
-    norm_p = norm(MadNLP.full(p), Inf)
 
-    residual_ratio = norm_w / max(one(T), norm_p)
-    MadNLP.@debug(
-        batch_solver.logger,
-        @sprintf("Residual after linear solve: %6.2e", residual_ratio),
-    )
-    if isnan(residual_ratio) || (opt.check_residual && (residual_ratio > opt.tol_linear_solve))
-        throw(MadNLP.SolveException())
+    ws = batch_solver.workspace
+    _fw = MadNLP.full(w)
+    _fw .= abs.(_fw)
+    maximum!(ws._norm_gpu, _fw)                          # (1,bs) per-instance norm_w
+    copyto!(ws._norm_cpu, vec(ws._norm_gpu))
+    _fw .= abs.(MadNLP.full(p))
+    maximum!(ws._norm_gpu, _fw)                          # (1,bs) per-instance norm_p
+    copyto!(ws._norm_cpu2, vec(ws._norm_gpu))
+
+    @inbounds for i in 1:bs
+        bkkt.batch_map[i] == 0 && continue
+        nw = ws._norm_cpu[i]
+        np = ws._norm_cpu2[i]
+        ratio = nw / max(one(T), np)
+        if isnan(ratio) || (opt.check_residual && (ratio > opt.tol_linear_solve))
+            ws.status[i] = MadNLP.INTERNAL_ERROR
+        end
     end
     return d
 end

@@ -123,4 +123,45 @@ end
     @testset "FullBatch different H/A data" begin
         _test_fullbatch_different_data()
     end
+    @testset "Residual check marks INTERNAL_ERROR (all fail)" begin
+        # Force residual check failure with tol_linear_solve=0 — should mark
+        # instances as INTERNAL_ERROR instead of throwing a SolveException.
+        qps = [simple_lp() for _ in 1:3]
+        bnlp = ObjRHSBatchQuadraticModel(qps)
+        stats = MadIPM.madipm_batch(bnlp;
+            print_level=MadNLP.ERROR,
+            check_residual=true,
+            tol_linear_solve=0.0,
+        )
+        for i in 1:3
+            @test stats[i].status == MadNLP.INTERNAL_ERROR
+        end
+    end
+
+    @testset "Residual check marks INTERNAL_ERROR (partial)" begin
+        # Use NaN objective coefficients to produce NaN residuals for one instance.
+        # The per-instance residual check should mark only that instance as INTERNAL_ERROR.
+        Hrows = [1, 2]; Hcols = [1, 2]
+        Arows = [1, 1]; Acols = [1, 2]
+
+        good_qp() = QuadraticModel(
+            [1.0, 1.0], Hrows, Hcols, [2.0, 2.0];
+            Arows=Arows, Acols=Acols, Avals=[1.0, 1.0],
+            lcon=[1.0], ucon=[1.0],
+            lvar=[0.0, 0.0], uvar=[Inf, Inf], x0=[0.5, 0.5],
+        )
+        bad_qp = QuadraticModel(
+            [NaN, NaN], Hrows, Hcols, [2.0, 2.0];
+            Arows=Arows, Acols=Acols, Avals=[1.0, 1.0],
+            lcon=[1.0], ucon=[1.0],
+            lvar=[0.0, 0.0], uvar=[Inf, Inf], x0=[0.5, 0.5],
+        )
+        qps = [good_qp(), bad_qp, good_qp()]
+        bnlp = BatchQuadraticModel(qps)
+        stats = MadIPM.madipm_batch(bnlp; print_level=MadNLP.ERROR)
+        # Good instances should solve; bad instance should fail gracefully
+        @test stats[1].status == MadNLP.SOLVE_SUCCEEDED
+        @test stats[3].status == MadNLP.SOLVE_SUCCEEDED
+        @test stats[2].status != MadNLP.SOLVE_SUCCEEDED
+    end
 end

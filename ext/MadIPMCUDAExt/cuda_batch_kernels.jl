@@ -82,6 +82,48 @@ end
     @inbounds alpha_d[1, j] = max(corrected_d, gamma_f * max_ad)
 end
 
+@kernel function _gather_compl_kernel!(
+    scratch, @Const(x_vals), @Const(xb_vals), @Const(z_vals), @Const(ind),
+)
+    i, j = @index(Global, NTuple)
+    @inbounds begin
+        idx = ind[i]
+        scratch[i, j] = abs(x_vals[idx, j] - xb_vals[idx, j]) * z_vals[idx, j]
+    end
+end
+
+function MadIPM.get_inf_compl!(
+    inf_compl::CuMatrix, x::MadIPM.BatchPrimalVector, xl::MadIPM.BatchPrimalVector,
+    zl::MadIPM.BatchPrimalVector, xu::MadIPM.BatchPrimalVector, zu::MadIPM.BatchPrimalVector,
+    scratch_lb::CuMatrix, scratch_ub::CuMatrix, sum_lb, sum_ub, nlb, nub,
+)
+    T = eltype(inf_compl)
+    bs = size(inf_compl, 2)
+    backend = CUDABackend()
+    if nlb > 0
+        _gather_compl_kernel!(backend)(
+            scratch_lb, x.values, xl.values, zl.values, x.ind_lb;
+            ndrange=(nlb, bs),
+        )
+        KernelAbstractions.synchronize(backend)
+        maximum!(sum_lb, scratch_lb)
+    else
+        fill!(sum_lb, zero(T))
+    end
+    if nub > 0
+        _gather_compl_kernel!(backend)(
+            scratch_ub, xu.values, x.values, zu.values, x.ind_ub;
+            ndrange=(nub, bs),
+        )
+        KernelAbstractions.synchronize(backend)
+        maximum!(sum_ub, scratch_ub)
+    else
+        fill!(sum_ub, zero(T))
+    end
+    @. inf_compl = max(sum_lb, sum_ub)
+    return inf_compl
+end
+
 function MadIPM._mehrotra_correct_steps!(
     alpha_p::CuMatrix{T}, alpha_d::CuMatrix{T}, mu,
     val_xl, idx_xl, val_xu, idx_xu,

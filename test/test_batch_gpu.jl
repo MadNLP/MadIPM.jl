@@ -247,6 +247,22 @@ end
         end
     end
 
+    @testset "Residual check marks INTERNAL_ERROR (GPU)" begin
+        qps = [simple_lp() for _ in 1:3]
+        cpu_bnlp = ObjRHSBatchQuadraticModel(qps)
+        gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
+        stats = MadIPM.madipm_batch(gpu_bnlp;
+            print_level=MadNLP.ERROR,
+            uniformbatch_linear_solver=MadNLPGPU.CUDSSSolver,
+            cudss_algorithm=MadNLP.LDL,
+            check_residual=true,
+            tol_linear_solve=0.0,
+        )
+        CUDA.@allowscalar for i in 1:3
+            @test stats[i].status == MadNLP.INTERNAL_ERROR
+        end
+    end
+
     @testset "FullBatch identical QP (bs=3)" begin
         qps = [_gpu_small_qp() for _ in 1:3]
         ref = MadIPM.madipm(qps[1]; print_level=MadNLP.ERROR)

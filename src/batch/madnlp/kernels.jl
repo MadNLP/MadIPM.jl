@@ -9,16 +9,18 @@ function get_inf_du!(inf_du, f_vals, zl_vals, zu_vals, jacl_vals, scratch)
     return inf_du
 end
 
-function get_inf_compl!(inf_compl, x_lr, xl_r, zl_r, xu_r, x_ur, zu_r,
+function get_inf_compl!(inf_compl, x, xl, zl, xu, zu,
                         scratch_lb, scratch_ub, sum_lb, sum_ub, nlb, nub)
     T = eltype(inf_compl)
     if nlb > 0
+        x_lr = lower(x); xl_r = lower(xl); zl_r = lower(zl)
         @. scratch_lb = abs(x_lr - xl_r) * zl_r
         maximum!(sum_lb, scratch_lb)
     else
         fill!(sum_lb, zero(T))
     end
     if nub > 0
+        xu_r = upper(xu); x_ur = upper(x); zu_r = upper(zu)
         @. scratch_ub = abs(xu_r - x_ur) * zu_r
         maximum!(sum_ub, scratch_ub)
     else
