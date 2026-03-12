@@ -539,8 +539,13 @@ function solve!(batch_solver::AbstractBatchMPCSolver{T}) where T
         t_end = time()
         bcnt.total_time .= t_end .- bcnt.start_time[]
         update_solution!(stats, batch_solver)
+        status_counts = Dict{MadNLP.SolverStatus, Int}()
         for i in 1:bs
-            MadNLP.@notice(batch_solver.logger, "Problem $i: $(MadNLP.get_status_output(ws.status[i], batch_solver.opt))")
+            s = ws.status[i]
+            status_counts[s] = get(status_counts, s, 0) + 1
+        end
+        for (s, cnt) in status_counts
+            MadNLP.@notice(batch_solver.logger, "$(MadNLP.get_status_output(s, batch_solver.opt)): $cnt/$bs")
         end
     end
 
