@@ -539,7 +539,7 @@ function solve!(batch_solver::AbstractBatchMPCSolver{T}) where T
         t_end = time()
         bcnt.total_time .= t_end .- bcnt.start_time[]
         update_solution!(stats, batch_solver)
-        status_counts = Dict{MadNLP.SolverStatus, Int}()
+        status_counts = Dict{MadNLP.Status, Int}()
         for i in 1:bs
             s = ws.status[i]
             status_counts[s] = get(status_counts, s, 0) + 1
