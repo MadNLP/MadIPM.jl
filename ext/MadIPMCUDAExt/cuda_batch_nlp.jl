@@ -71,7 +71,7 @@ function NLPModels.hess_coord!(
     H = bqp.data.H.A
     nnzh = nnz(H)
     nnzh == 0 && return bhvals
-    bhvals .= H.nzVal .* bobj_weight'
+    mul!(bhvals, H.nzVal, bobj_weight')
     return bhvals
 end
 
