@@ -263,8 +263,13 @@ function MadNLP.factorize_wrapper!(batch_solver::AbstractBatchMPCSolver)
     return
 end
 
+function _gather_mul!(out::AbstractMatrix, A::AbstractMatrix, nz_map, B::AbstractMatrix, val_map)
+    @views out .= A[nz_map, :] .* B[val_map, :]
+    return out
+end
+
 function MadNLP.jtprod!(res::AbstractMatrix, bkkt::SparseUniformBatchKKTSystem, y::BatchVector)
-    @views bkkt.jt_buffer .= bkkt.nzVals[bkkt.jt_nz_map, :] .* MadNLP.full(y)[bkkt.jt_con_map, :]
+    _gather_mul!(bkkt.jt_buffer, bkkt.nzVals, bkkt.jt_nz_map, MadNLP.full(y), bkkt.jt_con_map)
     mul!(res, bkkt.jt_scatter, bkkt.jt_buffer)
     return res
 end
@@ -345,17 +350,17 @@ function LinearAlgebra.mul!(
 
     # mul!(primal(w), Symmetric(hess_com, :L), primal(x), alpha, beta)
     xv = MadNLP.full(x)
-    @views bkkt.hess_buffer .= nzV[bkkt.hess_nz_map, :] .* xv[bkkt.hess_var_map, :]
+    _gather_mul!(bkkt.hess_buffer, nzV, bkkt.hess_nz_map, xv, bkkt.hess_var_map)
     mul!(wp, bkkt.hess_scatter, bkkt.hess_buffer)
     MadNLP.primal(w) .= beta .* MadNLP.primal(w) .+ alpha .* wp
 
     # mul!(primal(w), jac_com', dual(x), alpha, one(T))
-    @views bkkt.jt_buffer .= nzV[bkkt.jt_nz_map, :] .* xv[bkkt.jt_con_map_full, :]
+    _gather_mul!(bkkt.jt_buffer, nzV, bkkt.jt_nz_map, xv, bkkt.jt_con_map_full)
     mul!(wp, bkkt.jt_scatter, bkkt.jt_buffer)
     MadNLP.primal(w) .+= alpha .* wp
 
     # mul!(dual(w), jac_com, primal(x), alpha, beta)
-    @views bkkt.j_buffer .= nzV[bkkt.jt_nz_map, :] .* xv[bkkt.j_var_map, :]
+    _gather_mul!(bkkt.j_buffer, nzV, bkkt.jt_nz_map, xv, bkkt.j_var_map)
     mul!(wd, bkkt.j_scatter, bkkt.j_buffer)
     MadNLP.dual(w) .= beta .* MadNLP.dual(w) .+ alpha .* wd
     _kktmul!(w, x, bkkt.reg, du_diag(bkkt), bkkt.l_lower, bkkt.u_lower, bkkt.l_diag, bkkt.u_diag, alpha, beta)

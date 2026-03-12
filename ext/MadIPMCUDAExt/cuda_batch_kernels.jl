@@ -146,3 +146,20 @@ function MadIPM._mehrotra_correct_steps!(
         KernelAbstractions.synchronize(backend)
     end
 end
+
+@kernel function _gather_mul_kernel!(out, @Const(A), @Const(nz_map), @Const(B), @Const(val_map))
+    i, j = @index(Global, NTuple)
+    @inbounds out[i, j] = A[nz_map[i], j] * B[val_map[i], j]
+end
+
+function MadIPM._gather_mul!(
+    out::CuMatrix, A::CuMatrix, nz_map::CuVector, B::CuMatrix, val_map::CuVector,
+)
+    n, bs = size(out)
+    if n > 0
+        backend = CUDABackend()
+        _gather_mul_kernel!(backend)(out, A, nz_map, B, val_map; ndrange=(n, bs))
+        KernelAbstractions.synchronize(backend)
+    end
+    return out
+end
