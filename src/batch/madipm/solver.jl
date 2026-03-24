@@ -512,15 +512,13 @@ function mpc!(batch_solver::AbstractBatchMPCSolver)
     end
 end
 
-function solve!(batch_solver::AbstractBatchMPCSolver{T}) where T
+function solve!(batch_solver::AbstractBatchMPCSolver{T, MT, VT}) where {T, MT, VT}
     ws = batch_solver.workspace
     bcb = batch_solver.bcb
     bs = batch_solver.batch_size
 
     nvar_nlp = bcb.nlp.meta.nvar
     ncon = bcb.ncon
-    VT = typeof(ws.bf)
-    MT = typeof(MadNLP.full(batch_solver.x))
     stats = BatchExecutionStats(MT, VT, nvar_nlp, ncon, bs)
 
     try

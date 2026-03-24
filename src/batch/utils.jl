@@ -1,4 +1,4 @@
-abstract type AbstractBatchMPCSolver{T} end
+abstract type AbstractBatchMPCSolver{T, MT, VT} end
 
 function _madnlp_unsafe_column_wrap(mat::MT, n, shift, ::Type{VT}) where {T, MT<:AbstractMatrix{T}, VT<:AbstractVector{T}}
     return unsafe_wrap(VT, pointer(mat, shift), n)

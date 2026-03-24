@@ -49,10 +49,10 @@ end
 
 function MadNLP.create_kkt_system(
     ::Type{MadNLP.SparseKKTSystem},
-    bcb::UniformBatchCallback{T, VT},
+    bcb::UniformBatchCallback{T, VT, MT, VI},
     uniformbatch_linear_solver = LoopedBatchLinearSolver;
     opt_linear_solver = MadNLP.default_options(uniformbatch_linear_solver),
-) where {T, VT}
+) where {T, VT, MT, VI}
     batch_size = bcb.batch_size
 
     n_slack = length(bcb.ind_ineq)
@@ -143,8 +143,6 @@ function MadNLP.create_kkt_system(
     active_batch_size = Ref(batch_size)
 
     LS = typeof(batch_ls)
-    MT = typeof(nzVals)
-    VI = typeof(aug_csc_map)
     VI32 = typeof(I)
     SMT = typeof(jt_scatter)
     return SparseUniformBatchKKTSystem{T, LS, VT, MT, VI, VI32, SMT}(

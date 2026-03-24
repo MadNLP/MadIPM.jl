@@ -78,7 +78,7 @@ function UniformBatchWorkspace(::Type{MT}, ::Type{VT}, nlb::Int, nub::Int, batch
     )
 end
 
-mutable struct UniformBatchMPCSolver{T, MT, VT, VI, BM, BCB} <: AbstractBatchMPCSolver{T}
+mutable struct UniformBatchMPCSolver{T, MT, VT, VI, BM, BCB} <: AbstractBatchMPCSolver{T, MT, VT}
     batch_size::Int
 
     d::BatchUnreducedKKTVector{T, MT, VT}
