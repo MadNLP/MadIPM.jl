@@ -446,20 +446,16 @@ end
 
 function apply_step!(batch_solver::AbstractBatchMPCSolver)
     ws = batch_solver.workspace
-    x, xl, xu = batch_solver.x, batch_solver.xl, batch_solver.xu
+    x, y, xl, xu = batch_solver.x, batch_solver.y, batch_solver.xl, batch_solver.xu
     zl, zu, d = batch_solver.zl, batch_solver.zu, batch_solver.d
     batch_size = batch_solver.batch_size
     nlb, nub = d.nlb, d.nub
 
     # x += alpha_p * dx
-    _x = MadNLP.full(x)
-    _dx = MadNLP.primal(d)
-    @. _x = muladd(ws.alpha_p, _dx, _x)
+    MadNLP.full(x) .+= ws.alpha_p .* MadNLP.primal(d)
 
     # y += alpha_d * d_dual
-    _y = MadNLP.full(batch_solver.y)
-    _dy = MadNLP.dual(d)
-    @. _y = muladd(ws.alpha_d, _dy, _y)
+    MadNLP.full(y) .+= ws.alpha_d .* MadNLP.dual(d)
 
     # zl_r += alpha_d * dzl, zu_r += alpha_d * dzu
     if nlb > 0
