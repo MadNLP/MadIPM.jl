@@ -1,6 +1,6 @@
 using KernelAbstractions
 using MadNLPGPU
-using QuadraticModels: ObjRHSBatchQuadraticModel, BatchQuadraticModel
+using BatchQuadraticModels: ObjRHSBatchQuadraticModel, BatchQuadraticModel
 
 # ============================================================
 #  Test problem constructors for GPU batch tests

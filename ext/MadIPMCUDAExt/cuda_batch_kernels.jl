@@ -16,6 +16,23 @@
     end
 end
 
+@inline function _atomic_colreduce!(::typeof(+), out, j, value)
+    Atomix.@atomic out[1, j] += value
+    return
+end
+
+@inline function _atomic_colreduce!(::typeof(min), out, j, value)
+    old = out[1, j]
+    while value < old
+        result = Atomix.@atomicreplace out[1, j] old => value
+        old = result.old
+        if result.success
+            break
+        end
+    end
+    return
+end
+
 function MadNLP._set_con_scale_sparse!(
     con_scale::CuMatrix{T},
     jac_I::CuVector{<:Integer},

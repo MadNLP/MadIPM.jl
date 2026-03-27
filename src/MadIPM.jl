@@ -7,7 +7,14 @@ import MadNLP
 import MadNLP: full, LDLFactorizations
 import NLPModels
 import QuadraticModels
-import QuadraticModels: SparseMatrixCOO
+import QuadraticModels: QPData, QuadraticModel, SparseMatrixCOO
+
+import BatchQuadraticModels
+import BatchQuadraticModels:
+  ObjRHSBatchQuadraticModel,
+  BatchSparseOp,
+  batch_spmv!,
+  batch_mapreduce!
 
 include("utils.jl")
 include("structure.jl")

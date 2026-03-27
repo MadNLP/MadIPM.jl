@@ -4,7 +4,7 @@ using SparseArrays
 using MadNLP
 using MadIPM
 using QuadraticModels
-using QuadraticModels: ObjRHSBatchQuadraticModel
+using BatchQuadraticModels: ObjRHSBatchQuadraticModel
 
 # ──────────────────────────────────────────────────────────────
 # Test problems

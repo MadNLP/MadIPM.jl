@@ -170,7 +170,6 @@ function qp_model(moimodel::MOI.ModelLike)
     data = QuadraticModels.QPData(
         d,
         c,
-        zeros(length(c)),
         Q,
         A,
     )

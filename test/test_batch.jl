@@ -1,4 +1,4 @@
-using QuadraticModels: ObjRHSBatchQuadraticModel, BatchQuadraticModel
+using BatchQuadraticModels: ObjRHSBatchQuadraticModel, BatchQuadraticModel
 
 function _make_small_qp()
     # Small QP: min 0.5 xᵀHx + cᵀx  s.t.  lcon ≤ Ax ≤ ucon, lvar ≤ x ≤ uvar

@@ -4,6 +4,7 @@ version = "0.2.0"
 authors = ["François Pacaud <francoispacaud8@gmail.com>", "Alexis Montoison <amontoison@anl.gov>"]
 
 [deps]
+BatchQuadraticModels = "412afcf0-3ec6-4826-be17-8d792afa05a8"
 LDLFactorizations = "40e66cde-538c-5869-a4ad-c39174c6795b"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 MadNLP = "2621e9c9-9eb4-46b1-8089-e8c72242dfb6"
@@ -21,8 +22,7 @@ MadNLPGPU = "d72a61cc-809d-412f-99be-fd81f4b8a598"
 MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
 
 [sources]
-NLPModels = {rev = "mk/paramnlp", url = "https://github.com/klamike/NLPModels.jl"}
-QuadraticModels = {url = "https://github.com/klamike/QuadraticModels.jl.git", rev = "mk/rhsbatch"}
+BatchQuadraticModels = {rev = "main", url = "https://github.com/klamike/BatchQuadraticModels.jl"}
 
 [extensions]
 MadIPMCUDAExt = ["Atomix", "CUDA", "CUDSS", "KernelAbstractions", "MadNLPGPU"]
@@ -30,6 +30,7 @@ MadIPMMathOptInterfaceExt = "MathOptInterface"
 
 [compat]
 Atomix = "1"
+BatchQuadraticModels = "0.1"
 CUDA = "5.4.0"
 CUDSS = "0.6"
 KernelAbstractions = "0.9"

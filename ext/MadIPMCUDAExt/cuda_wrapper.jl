@@ -188,35 +188,6 @@ MadIPM._colptr(A::CuSparseMatrixCSC) = A.colPtr
 MadIPM._rowval(A::CuSparseMatrixCSC) = A.rowVal
 MadIPM._nzval(A::CuSparseMatrixCSC) = A.nzVal
 
-function MadIPM._coo_to_scatter(
-    coo_I, nrows::Int, n_entries::Int,
-    proto_I, nzVals::CuMatrix{T}, batch_size::Int,
-) where T
-    if n_entries == 0
-        scatter = CUSPARSE.CuSparseMatrixCSC(
-            CuVector{Int32}([1]),
-            CuVector{Int32}(undef, 0),
-            CuVector{T}(undef, 0),
-            (nrows, 0),
-        )
-        op = MadIPMOperator(scatter; spmm_ncols=batch_size)
-        buffer = similar(nzVals, 0, batch_size)
-        return op, buffer
-    end
-    coo_J = similar(proto_I, n_entries)
-    coo_J .= Int32(1):Int32(n_entries)
-    coo_V = similar(nzVals, n_entries)
-    fill!(coo_V, one(T))
-    scatter, _ = MadNLP.coo_to_csc(
-        MadNLP.SparseMatrixCOO(nrows, n_entries, coo_I, coo_J, coo_V),
-    )
-    fill!(MadIPM._nzval(scatter), one(T))
-    op = MadIPMOperator(scatter; spmm_ncols=batch_size)
-    buffer = similar(nzVals, n_entries, batch_size)
-    fill!(buffer, zero(T))
-    return op, buffer
-end
-
 # we introduce a new constructor that takes the nzvals as a matrix explicitly
 function MadNLPGPU.CUDSSSolver(
     aug_com::CUSPARSE.CuSparseMatrixCSC{T,Cint},

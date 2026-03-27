@@ -8,73 +8,63 @@ function _csc_with_nzval(A::SparseArrays.SparseMatrixCSC, nzval, n)
     return SparseArrays.SparseMatrixCSC(n, n, SparseArrays.getcolptr(A), SparseArrays.rowvals(A), nzval)
 end
 
+batch_maximum!(out::AbstractMatrix, src::AbstractMatrix) = maximum!(out, src)
+batch_minimum!(out::AbstractMatrix, src::AbstractMatrix) = minimum!(out, src)
+batch_sum!(out::AbstractMatrix, src::AbstractMatrix) = sum!(out, src)
+
 function zero_inactive_step!(batch_solver::AbstractBatchMPCSolver{T}) where T
     ws = batch_solver.workspace
     ws.alpha_p .*= ws.active_mask
     ws.alpha_d .*= ws.active_mask
 end
 
-function _coo_to_scatter(
-    coo_I, nrows::Int, n_entries::Int,
-    proto_I, nzVals::AbstractMatrix{T}, batch_size::Int,
-) where T
-    if n_entries == 0
-        scatter = SparseArrays.sparse(Int32[], Int32[], T[], nrows, 0)
-        buffer = similar(nzVals, 0, batch_size)
-        return scatter, buffer
-    end
-    coo_J = similar(proto_I, n_entries)
-    coo_J .= Int32(1):Int32(n_entries)
-    coo_V = similar(nzVals, n_entries)
-    fill!(coo_V, one(T))
-    scatter, _ = MadNLP.coo_to_csc(
-        MadNLP.SparseMatrixCOO(nrows, n_entries, coo_I, coo_J, coo_V),
+function _build_batch_op(nzVals, nz_map, val_map, coo_I, nrows)
+    rowptr, colidx = BatchQuadraticModels._coo_to_csr(Vector{Int}(coo_I), nrows)
+    return BatchQuadraticModels._build_storage_op(
+        nzVals,
+        rowptr,
+        Vector{Int}(nz_map),
+        Vector{Int}(val_map),
+        colidx,
     )
-    fill!(_nzval(scatter), one(T))
-    buffer = similar(nzVals, n_entries, batch_size)
-    fill!(buffer, zero(T))
-    return scatter, buffer
 end
 
-function _build_scatter(
+function _build_jt_op(
     aug_I, aug_J, jac_range, n_tot,
-    nzVals::AbstractMatrix{T}, aug_csc_map, batch_size,
+    nzVals::AbstractMatrix{T}, aug_csc_map,
 ) where T
     n_jac = length(jac_range)
     coo_I = similar(aug_I, n_jac)
     coo_I .= aug_J[jac_range]
-    scatter, buffer = _coo_to_scatter(coo_I, n_tot, n_jac, aug_I, nzVals, batch_size)
     nz_map = similar(aug_csc_map, n_jac)
     nz_map .= jac_range
     con_map = similar(aug_csc_map, n_jac)
     con_map .= aug_I[jac_range] .- Int32(n_tot)
-    return scatter, nz_map, con_map, buffer
+    return _build_batch_op(nzVals, nz_map, con_map, coo_I, n_tot)
 end
 
-function _build_jac_scatter(
+function _build_j_op(
     aug_I, aug_J, jac_range, n_tot, m,
-    nzVals::AbstractMatrix{T}, aug_csc_map, batch_size,
+    nzVals::AbstractMatrix{T}, aug_csc_map,
 ) where T
     n_jac = length(jac_range)
     coo_I = similar(aug_I, n_jac)
     coo_I .= aug_I[jac_range] .- Int32(n_tot)
-    scatter, buffer = _coo_to_scatter(coo_I, m, n_jac, aug_I, nzVals, batch_size)
     nz_map = similar(aug_csc_map, n_jac)
     nz_map .= jac_range
     var_map = similar(aug_csc_map, n_jac)
     var_map .= aug_J[jac_range]
-    return scatter, nz_map, var_map, buffer
+    return _build_batch_op(nzVals, nz_map, var_map, coo_I, m)
 end
 
-function _build_hess_scatter(
+function _build_hess_op(
     aug_I, aug_J, n_tot, n_hess,
-    nzVals::AbstractMatrix{T}, aug_csc_map, batch_size,
+    nzVals::AbstractMatrix{T}, aug_csc_map,
 ) where T
     if n_hess == 0
-        scatter, buffer = _coo_to_scatter(similar(aug_I, 0), n_tot, 0, aug_I, nzVals, batch_size)
         nz_map = similar(aug_csc_map, 0)
         var_map = similar(aug_csc_map, 0)
-        return scatter, nz_map, var_map, buffer
+        return _build_batch_op(nzVals, nz_map, var_map, similar(aug_I, 0), n_tot)
     end
 
     hess_range = n_tot+1:n_tot+n_hess
@@ -84,11 +74,9 @@ function _build_hess_scatter(
     offdiag_idx = findall(hess_I .!= hess_J)
     n_hess_sym = n_hess + length(offdiag_idx)
 
-    scatter_rows = similar(aug_I, n_hess_sym)
-    scatter_rows[1:n_hess] .= hess_I
-    scatter_rows[n_hess+1:end] .= hess_J[offdiag_idx]
-
-    scatter, buffer = _coo_to_scatter(scatter_rows, n_tot, n_hess_sym, aug_I, nzVals, batch_size)
+    coo_rows = similar(aug_I, n_hess_sym)
+    coo_rows[1:n_hess] .= hess_I
+    coo_rows[n_hess+1:end] .= hess_J[offdiag_idx]
 
     nz_map = similar(aug_csc_map, n_hess_sym)
     nz_map[1:n_hess] .= hess_range
@@ -98,7 +86,7 @@ function _build_hess_scatter(
     var_map[1:n_hess] .= hess_J
     var_map[n_hess+1:end] .= hess_I[offdiag_idx]
 
-    return scatter, nz_map, var_map, buffer
+    return _build_batch_op(nzVals, nz_map, var_map, coo_rows, n_tot)
 end
 
 struct BatchVector{T, MT<:AbstractMatrix{T}}
