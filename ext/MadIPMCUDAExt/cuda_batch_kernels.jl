@@ -42,7 +42,6 @@ function MadNLP._set_con_scale_sparse!(
     if nnzj > 0
         backend = CUDABackend()
         _set_con_scale_kernel!(backend)(con_scale, jac_I, jac_buffer; ndrange=nnzj)
-        KernelAbstractions.synchronize(backend)
     end
     return con_scale
 end
@@ -366,7 +365,6 @@ function MadIPM._reduce_rhs_batch!(values::CuMatrix, ind_lb, lb_off, l_diag,
     nlb > 0 && _reduce_rhs_lb_kernel!(backend)(values, ind_lb, lb_off, l_diag; ndrange=(nlb, bs))
     nub = length(ind_ub)
     nub > 0 && _reduce_rhs_ub_kernel!(backend)(values, ind_ub, ub_off, u_diag; ndrange=(nub, bs))
-    KernelAbstractions.synchronize(backend)
     return
 end
 
@@ -387,6 +385,5 @@ function MadIPM._finish_aug_solve_batch!(values::CuMatrix, ind_lb, lb_off, l_low
     nlb > 0 && _finish_aug_solve_lb_kernel!(backend)(values, ind_lb, lb_off, l_lower, l_diag; ndrange=(nlb, bs))
     nub = length(ind_ub)
     nub > 0 && _finish_aug_solve_ub_kernel!(backend)(values, ind_ub, ub_off, u_lower, u_diag; ndrange=(nub, bs))
-    KernelAbstractions.synchronize(backend)
     return
 end
