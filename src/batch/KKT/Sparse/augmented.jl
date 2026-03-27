@@ -179,20 +179,39 @@ function MadNLP.solve_linear_system!(bkkt::SparseUniformBatchKKTSystem{T}, rhs::
     return rhs
 end
 
+function _reduce_rhs_batch!(values::AbstractMatrix, ind_lb, lb_off, l_diag, ind_ub, ub_off, u_diag)
+    nlb = length(ind_lb); nub = length(ind_ub); bs = size(values, 2)
+    @inbounds for j in 1:bs, i in 1:nlb
+        values[ind_lb[i], j] -= values[lb_off + i, j] / l_diag[i, j]
+    end
+    @inbounds for j in 1:bs, i in 1:nub
+        values[ind_ub[i], j] -= values[ub_off + i, j] / u_diag[i, j]
+    end
+end
+
+function _finish_aug_solve_batch!(values::AbstractMatrix, ind_lb, lb_off, l_lower, l_diag,
+                                                          ind_ub, ub_off, u_lower, u_diag)
+    nlb = length(ind_lb); nub = length(ind_ub); bs = size(values, 2)
+    @inbounds for j in 1:bs, i in 1:nlb
+        values[lb_off + i, j] = (-values[lb_off + i, j] + l_lower[i, j] * values[ind_lb[i], j]) / l_diag[i, j]
+    end
+    @inbounds for j in 1:bs, i in 1:nub
+        values[ub_off + i, j] = (values[ub_off + i, j] - u_lower[i, j] * values[ind_ub[i], j]) / u_diag[i, j]
+    end
+end
+
 function MadNLP.reduce_rhs!(bkkt::SparseUniformBatchKKTSystem, d::BatchUnreducedKKTVector)
-    MadNLP.reduce_rhs!(
-        xp_lr(d), MadNLP.dual_lb(d), bkkt.l_diag,
-        xp_ur(d), MadNLP.dual_ub(d), bkkt.u_diag,
-    )
+    lb_off = d.n + d.m
+    _reduce_rhs_batch!(d.values, d.ind_lb, lb_off, bkkt.l_diag,
+                                 d.ind_ub, lb_off + d.nlb, bkkt.u_diag)
     return
 end
 
 function MadNLP.finish_aug_solve!(bkkt::SparseUniformBatchKKTSystem, batch_solver::AbstractBatchMPCSolver)
     d = batch_solver.d
-    dzl = MadNLP.dual_lb(d)
-    dzu = MadNLP.dual_ub(d)
-    dzl .= (.-dzl .+ bkkt.l_lower .* xp_lr(d)) ./ bkkt.l_diag
-    dzu .= (dzu .- bkkt.u_lower .* xp_ur(d)) ./ bkkt.u_diag
+    lb_off = d.n + d.m
+    _finish_aug_solve_batch!(d.values, d.ind_lb, lb_off, bkkt.l_lower, bkkt.l_diag,
+                                       d.ind_ub, lb_off + d.nlb, bkkt.u_lower, bkkt.u_diag)
     return
 end
 

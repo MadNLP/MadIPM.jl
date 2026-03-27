@@ -164,19 +164,44 @@ function MadIPM._mehrotra_correct_steps!(
     end
 end
 
-@kernel function _gather_mul_kernel!(out, @Const(A), @Const(nz_map), @Const(B), @Const(val_map))
+@kernel function _reduce_rhs_lb_kernel!(values, @Const(ind_lb), lb_off, @Const(l_diag))
     i, j = @index(Global, NTuple)
-    @inbounds out[i, j] = A[nz_map[i], j] * B[val_map[i], j]
+    @inbounds values[ind_lb[i], j] -= values[lb_off + i, j] / l_diag[i, j]
 end
 
-function MadIPM._gather_mul!(
-    out::CuMatrix, A::CuMatrix, nz_map::CuVector, B::CuMatrix, val_map::CuVector,
-)
-    n, bs = size(out)
-    if n > 0
-        backend = CUDABackend()
-        _gather_mul_kernel!(backend)(out, A, nz_map, B, val_map; ndrange=(n, bs))
-        KernelAbstractions.synchronize(backend)
-    end
-    return out
+@kernel function _reduce_rhs_ub_kernel!(values, @Const(ind_ub), ub_off, @Const(u_diag))
+    i, j = @index(Global, NTuple)
+    @inbounds values[ind_ub[i], j] -= values[ub_off + i, j] / u_diag[i, j]
+end
+
+function MadIPM._reduce_rhs_batch!(values::CuMatrix, ind_lb, lb_off, l_diag,
+                                                      ind_ub, ub_off, u_diag)
+    bs = size(values, 2); backend = CUDABackend()
+    nlb = length(ind_lb)
+    nlb > 0 && _reduce_rhs_lb_kernel!(backend)(values, ind_lb, lb_off, l_diag; ndrange=(nlb, bs))
+    nub = length(ind_ub)
+    nub > 0 && _reduce_rhs_ub_kernel!(backend)(values, ind_ub, ub_off, u_diag; ndrange=(nub, bs))
+    KernelAbstractions.synchronize(backend)
+    return
+end
+
+@kernel function _finish_aug_solve_lb_kernel!(values, @Const(ind_lb), lb_off, @Const(l_lower), @Const(l_diag))
+    i, j = @index(Global, NTuple)
+    @inbounds values[lb_off + i, j] = (-values[lb_off + i, j] + l_lower[i, j] * values[ind_lb[i], j]) / l_diag[i, j]
+end
+
+@kernel function _finish_aug_solve_ub_kernel!(values, @Const(ind_ub), ub_off, @Const(u_lower), @Const(u_diag))
+    i, j = @index(Global, NTuple)
+    @inbounds values[ub_off + i, j] = (values[ub_off + i, j] - u_lower[i, j] * values[ind_ub[i], j]) / u_diag[i, j]
+end
+
+function MadIPM._finish_aug_solve_batch!(values::CuMatrix, ind_lb, lb_off, l_lower, l_diag,
+                                                            ind_ub, ub_off, u_lower, u_diag)
+    bs = size(values, 2); backend = CUDABackend()
+    nlb = length(ind_lb)
+    nlb > 0 && _finish_aug_solve_lb_kernel!(backend)(values, ind_lb, lb_off, l_lower, l_diag; ndrange=(nlb, bs))
+    nub = length(ind_ub)
+    nub > 0 && _finish_aug_solve_ub_kernel!(backend)(values, ind_ub, ub_off, u_lower, u_diag; ndrange=(nub, bs))
+    KernelAbstractions.synchronize(backend)
+    return
 end
