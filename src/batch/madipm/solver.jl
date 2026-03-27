@@ -318,6 +318,15 @@ function update_termination_criteria!(batch_solver::AbstractBatchMPCSolver{T}) w
     copyto!(ws._term_cpu, vec(ws._term_gpu))
 
     walltime_hit = time() - bcnt.start_time[] >= opt.max_wall_time
+    max_iter_hit = walltime_hit ? false :
+        any(ws.status[i] == MadNLP.REGULAR && bcnt.k[i] >= opt.max_iter for i in 1:bs)
+
+    if !walltime_hit && !max_iter_hit
+        copyto!(ws._any_nonregular_cpu, ws._any_nonregular_gpu)  # TODO: use CuRef
+        ws._any_nonregular_cpu[1] == Int_REGULAR && return false
+    end
+
+    copyto!(ws._term_cpu, ws._term_gpu)
     @inbounds for i in 1:bs
         ws.status[i] != MadNLP.REGULAR && continue
         code = MadNLP.Status(ws._term_cpu[i])
@@ -494,7 +503,11 @@ end
 function _update_active_mask!(batch_solver::AbstractBatchMPCSolver{T}) where T
     ws = batch_solver.workspace
     bmap = batch_solver.kkt.batch_map
-    copyto!(ws.active_mask, reshape(T.(bmap .!= 0), 1, :))
+    buf = ws.active_mask_cpu
+    @inbounds for i in eachindex(bmap)
+        buf[i] = T(bmap[i] != 0)
+    end
+    copyto!(ws.active_mask, buf)
 end
 
 function mpc!(batch_solver::AbstractBatchMPCSolver)

@@ -1,6 +1,5 @@
-struct BatchUnreducedKKTVector{T, MT<:AbstractMatrix{T}, VT<:AbstractVector{T}, VI}
+struct BatchUnreducedKKTVector{T, MT<:AbstractMatrix{T}, VI}
     values::MT
-    views::Vector{VT}
     n::Int
     m::Int
     nlb::Int
@@ -25,14 +24,8 @@ function BatchUnreducedKKTVector(
     values = MT(undef, total, batch_size)
     fill!(values, zero(T))
 
-    views = Vector{VT}(undef, batch_size)
-    for i in 1:batch_size
-        col_start = (i-1) * total + 1
-        views[i] = _madnlp_unsafe_column_wrap(values, total, col_start, VT)
-    end
-
-    return BatchUnreducedKKTVector{T, MT, VT, typeof(ind_lb)}(
-        values, views, n, m, nlb, nub, ind_lb, ind_ub,
+    return BatchUnreducedKKTVector{T, MT, typeof(ind_lb)}(
+        values, n, m, nlb, nub, ind_lb, ind_ub,
         view(values, 1:n, :),
         view(values, n+1:n+m, :),
         view(values, 1:n+m, :),

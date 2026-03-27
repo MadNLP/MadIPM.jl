@@ -1,12 +1,8 @@
 # FIXME: threads/polyester version
 
-struct LoopedBatchLinearSolver{T, LS<:MadNLP.AbstractLinearSolver{T}} <: MadNLP.AbstractLinearSolver{T}
+struct LoopedBatchLinearSolver{T, VT, LS<:MadNLP.AbstractLinearSolver{T}} <: MadNLP.AbstractLinearSolver{T}
     solvers::Vector{LS}
     batch_size::Int
-end
-
-function LoopedBatchLinearSolver(solvers::Vector{LS}) where {T, LS<:MadNLP.AbstractLinearSolver{T}}
-    return LoopedBatchLinearSolver{T, LS}(solvers, length(solvers))
 end
 
 @kwdef mutable struct LoopedBatchLinearSolverOptions <: MadNLP.AbstractOptions
@@ -31,7 +27,7 @@ function LoopedBatchLinearSolver(
         csc_i = _csc_with_nzval(aug_com, nzval_i, n)
         linear_solver(csc_i; opt=per_instance_opt)
     end
-    LoopedBatchLinearSolver(individual_solvers)
+    LoopedBatchLinearSolver{T, VT, eltype(individual_solvers)}(individual_solvers, batch_size)
 end
 
 function is_factorized(batch_linear_solver::LoopedBatchLinearSolver)
@@ -45,10 +41,10 @@ function _active_factorize!(s::LoopedBatchLinearSolver, na::Int)
     return
 end
 
-function _active_solve!(s::LoopedBatchLinearSolver, rhs::AbstractVector, na::Int, n::Int)
+function _active_solve!(s::LoopedBatchLinearSolver{T, VT}, rhs::AbstractMatrix{T}, na::Int, n::Int) where {T, VT}
     for j in 1:na
-        xj = MadNLP._madnlp_unsafe_wrap(rhs, n, (j-1)*n + 1)
-        MadNLP.solve_linear_system!(s.solvers[j], xj)
+        rhs_j = _madnlp_unsafe_column_wrap(rhs, n, (j-1)*n + 1, VT)
+        MadNLP.solve_linear_system!(s.solvers[j], rhs_j)
     end
     return
 end

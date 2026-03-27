@@ -241,7 +241,7 @@ function MadIPM._active_factorize!(s::MadNLPGPU.CUDSSSolver, na::Int)
     return
 end
 
-function MadIPM._active_solve!(s::MadNLPGPU.CUDSSSolver{T}, rhs::CuVector{T}, na::Int, n::Int) where T
+function MadIPM._active_solve!(s::MadNLPGPU.CUDSSSolver{T}, rhs::CuMatrix{T}, na::Int, n::Int) where T
     rhs_active = unsafe_wrap(CuArray{T, 2}, pointer(rhs), (n, na))
     CUDSS.cudss_update(s.b_gpu, rhs_active)
     CUDSS.cudss_update(s.x_gpu, rhs_active)
