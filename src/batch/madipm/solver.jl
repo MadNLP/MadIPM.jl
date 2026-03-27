@@ -227,7 +227,15 @@ function initialize!(batch_solver::AbstractBatchMPCSolver{T}) where T
     batch_mapreduce!(abs, max, typemin(T), ws.norm_c, MadNLP.full(batch_solver.f))
 
     init_starting_point!(batch_solver)
+    initialize_solver_state!(batch_solver)
 
+    MadNLP.jtprod!(batch_solver.jacl, batch_solver.kkt, batch_solver.y)
+    return
+end
+
+function initialize_solver_state!(batch_solver::AbstractBatchMPCSolver{T}) where T
+    ws = batch_solver.workspace
+    opt = batch_solver.opt
     fill!(ws.mu_batch, opt.mu_init)
     fill!(ws.best_complementarity, typemax(T))
     fill!(ws.status, MadNLP.REGULAR)
@@ -247,9 +255,6 @@ function initialize!(batch_solver::AbstractBatchMPCSolver{T}) where T
     batch_solver.batch_cnt.obj_cnt[] = 0
     batch_solver.batch_cnt.obj_grad_cnt[] = 0
     batch_solver.batch_cnt.con_cnt[] = 0
-
-    MadNLP.jtprod!(batch_solver.jacl, batch_solver.kkt, batch_solver.y)
-
     return
 end
 
