@@ -114,6 +114,7 @@ function MadNLP.create_callback(
     bnlp::NLPModels.AbstractBatchNLPModel{T};
     fixed_variable_treatment=MadNLP.MakeParameter,
     equality_treatment=MadNLP.EnforceEquality,
+    check_batch_structure::Bool=true,
 ) where {T,VT,MT,VI}
     bmeta = bnlp.meta
     batch_size = bmeta.nbatch
@@ -143,7 +144,18 @@ function MadNLP.create_callback(
         NLPModels.hess_structure!(bnlp, hess_I, hess_J)
     end
 
-    # FIXME: assert structure?
+    if check_batch_structure
+        row_sums = vcat(
+            sum(bmeta.lvar .== bmeta.uvar; dims=2),
+            sum(isfinite.(bmeta.lvar); dims=2),
+            sum(isfinite.(bmeta.uvar); dims=2),
+            sum(bmeta.lcon .== bmeta.ucon; dims=2),
+            sum(isfinite.(bmeta.lcon); dims=2),
+            sum(isfinite.(bmeta.ucon); dims=2),
+        )
+        @assert all((row_sums .== 0) .| (row_sums .== batch_size)) "Batch fixed/bound/equality structure must match across instances"
+    end
+
     lvar = view(bmeta.lvar, :, 1)
     uvar = view(bmeta.uvar, :, 1)
     lcon = view(bmeta.lcon, :, 1)

@@ -215,6 +215,31 @@ end
         MadIPM.restore_state!(solver.batch_views, root)
     end
 
+    @testset "Batch structure mismatch throws" begin
+        qp1 = QuadraticModel(
+            [1.0, 1.0], [1, 2], [1, 2], [2.0, 2.0];
+            Arows=[1, 1], Acols=[1, 2], Avals=[1.0, 1.0],
+            lcon=[1.0], ucon=[1.0],
+            lvar=[0.0, 0.0], uvar=[1.0, 1.0],
+            x0=[0.5, 0.5],
+        )
+        qp2 = QuadraticModel(
+            [1.0, 1.0], [1, 2], [1, 2], [2.0, 2.0];
+            Arows=[1, 1], Acols=[1, 2], Avals=[1.0, 1.0],
+            lcon=[1.0], ucon=[1.0],
+            lvar=[0.0, 0.0], uvar=[0.0, 1.0],
+            x0=[0.0, 0.5],
+        )
+        bnlp = BatchQuadraticModel([qp1, qp2])
+        @test_throws AssertionError MadIPM.UniformBatchMPCSolver(bnlp; print_level=MadNLP.ERROR)
+        solver = MadIPM.UniformBatchMPCSolver(
+            bnlp;
+            print_level=MadNLP.ERROR,
+            check_batch_structure=false,
+        )
+        @test solver.batch_size == 2
+    end
+
     @testset "Partial active KKT solve preserves rhs" begin
         solver = _make_batch_solver([simple_lp() for _ in 1:3])
         MadIPM.initialize!(solver)

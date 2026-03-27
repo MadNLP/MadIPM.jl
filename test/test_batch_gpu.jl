@@ -127,6 +127,37 @@ end
         MadIPM.restore_state!(solver.batch_views, saved_root)
     end
 
+    @testset "Batch structure mismatch throws" begin
+        qp1 = QuadraticModel(
+            [1.0, 1.0], [1, 2], [1, 2], [2.0, 2.0];
+            Arows=[1, 1], Acols=[1, 2], Avals=[1.0, 1.0],
+            lcon=[1.0], ucon=[1.0],
+            lvar=[0.0, 0.0], uvar=[1.0, 1.0],
+            x0=[0.5, 0.5],
+        )
+        qp2 = QuadraticModel(
+            [1.0, 1.0], [1, 2], [1, 2], [2.0, 2.0];
+            Arows=[1, 1], Acols=[1, 2], Avals=[1.0, 1.0],
+            lcon=[1.0], ucon=[1.0],
+            lvar=[0.0, 0.0], uvar=[0.0, 1.0],
+            x0=[0.0, 0.5],
+        )
+        cpu_bnlp = BatchQuadraticModel([qp1, qp2])
+        gpu_bnlp = convert(BatchQuadraticModel{Float64, CuMatrix{Float64}}, cpu_bnlp)
+        @test_throws AssertionError MadIPM.UniformBatchMPCSolver(
+            gpu_bnlp;
+            print_level=MadNLP.ERROR,
+            uniformbatch_linear_solver=MadNLPGPU.CUDSSSolver,
+        )
+        solver = MadIPM.UniformBatchMPCSolver(
+            gpu_bnlp;
+            print_level=MadNLP.ERROR,
+            uniformbatch_linear_solver=MadNLPGPU.CUDSSSolver,
+            check_batch_structure=false,
+        )
+        @test solver.batch_size == 2
+    end
+
     # ----------------------------------------------------------
     # Identical instances (sanity check)
     # ----------------------------------------------------------

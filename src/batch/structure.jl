@@ -149,6 +149,7 @@ function UniformBatchMPCSolver(
     VT = typeof(similar(NLPModels.get_x0(bnlp), T, 0)),
     VI = typeof(similar(NLPModels.get_x0(bnlp), Int, 0)),
     uniformbatch_linear_solver = LoopedBatchLinearSolver,
+    check_batch_structure::Bool = true,
     kwargs...,
 ) where {T}
     bmeta = bnlp.meta
@@ -170,6 +171,7 @@ function UniformBatchMPCSolver(
         bnlp;
         fixed_variable_treatment=ipm_opt.fixed_variable_treatment,
         equality_treatment=ipm_opt.equality_treatment,
+        check_batch_structure=check_batch_structure,
     )
 
     ind_lb = bcb.ind_lb
