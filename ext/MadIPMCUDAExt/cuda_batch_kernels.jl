@@ -47,121 +47,306 @@ function MadNLP._set_con_scale_sparse!(
     return con_scale
 end
 
-@kernel function _mehrotra_correction_kernel!(
-    alpha_p, alpha_d,
-    @Const(mu),
-    @Const(val_xl), @Const(idx_xl), @Const(val_xu), @Const(idx_xu),
-    @Const(val_zl), @Const(idx_zl), @Const(val_zu), @Const(idx_zu),
-    @Const(d_vals), @Const(x_vals), @Const(xl_vals), @Const(xu_vals),
-    @Const(zl_vals), @Const(zu_vals),
-    @Const(ind_lb), @Const(ind_ub),
-    dlb_off, dub_off, gamma_f,
-)
-    j = @index(Global, Linear)
+_ftb_primal_lb_kernel!(alpha_out, dx, x, xb, tau, nrows) = begin
+    bs = size(alpha_out, 2)
+    blockIdx_reduce, j = fldmod1(blockIdx().x, bs)
+    gridDim_reduce = gridDim().x ÷ bs
+    T = eltype(alpha_out)
+    @inbounds if j <= bs
+        a = T(Inf); τ = tau[1, j]
+        i = threadIdx().x + (blockIdx_reduce - 1) * blockDim().x
+        while i <= nrows
+            d = dx[i, j]
+            d < zero(T) && (a = min(a, (-x[i, j] + xb[i, j]) * τ / d))
+            i += blockDim().x * gridDim_reduce
+        end
+        a = CUDA.reduce_block(min, a, T(Inf), Val(true))
+        threadIdx().x == 1 && _atomic_colreduce!(min, alpha_out, j, a)
+    end
+    return
+end
+
+_ftb_primal_ub_kernel!(alpha_out, dx, x, xb, tau, nrows) = begin
+    bs = size(alpha_out, 2)
+    blockIdx_reduce, j = fldmod1(blockIdx().x, bs)
+    gridDim_reduce = gridDim().x ÷ bs
+    T = eltype(alpha_out)
+    @inbounds if j <= bs
+        a = T(Inf); τ = tau[1, j]
+        i = threadIdx().x + (blockIdx_reduce - 1) * blockDim().x
+        while i <= nrows
+            d = dx[i, j]
+            d > zero(T) && (a = min(a, (-x[i, j] + xb[i, j]) * τ / d))
+            i += blockDim().x * gridDim_reduce
+        end
+        a = CUDA.reduce_block(min, a, T(Inf), Val(true))
+        threadIdx().x == 1 && _atomic_colreduce!(min, alpha_out, j, a)
+    end
+    return
+end
+
+_ftb_dual_lb_kernel!(alpha_out, dz, z, tau, nrows) = begin
+    bs = size(alpha_out, 2)
+    blockIdx_reduce, j = fldmod1(blockIdx().x, bs)
+    gridDim_reduce = gridDim().x ÷ bs
+    T = eltype(alpha_out)
+    @inbounds if j <= bs
+        a = T(Inf); τ = tau[1, j]
+        i = threadIdx().x + (blockIdx_reduce - 1) * blockDim().x
+        while i <= nrows
+            d = dz[i, j]
+            d < zero(T) && (a = min(a, -z[i, j] * τ / d))
+            i += blockDim().x * gridDim_reduce
+        end
+        a = CUDA.reduce_block(min, a, T(Inf), Val(true))
+        threadIdx().x == 1 && _atomic_colreduce!(min, alpha_out, j, a)
+    end
+    return
+end
+
+_ftb_dual_ub_kernel!(alpha_out, dz, z, tau, nrows) = begin
+    bs = size(alpha_out, 2)
+    blockIdx_reduce, j = fldmod1(blockIdx().x, bs)
+    gridDim_reduce = gridDim().x ÷ bs
+    T = eltype(alpha_out)
+    @inbounds if j <= bs
+        a = T(Inf); τ = tau[1, j]
+        i = threadIdx().x + (blockIdx_reduce - 1) * blockDim().x
+        while i <= nrows
+            d = dz[i, j]
+            (d < zero(T) && z[i, j] + d < zero(T)) && (a = min(a, -z[i, j] * τ / d))
+            i += blockDim().x * gridDim_reduce
+        end
+        a = CUDA.reduce_block(min, a, T(Inf), Val(true))
+        threadIdx().x == 1 && _atomic_colreduce!(min, alpha_out, j, a)
+    end
+    return
+end
+
+function _launch_ftb_kernel!(kernel_fn, alpha_out, nrows, srcs...)
+    T = eltype(alpha_out)
+    bs = size(alpha_out, 2)
+    fill!(alpha_out, T(Inf))
+    nrows == 0 && return
+    kernel = @cuda launch=false kernel_fn(alpha_out, srcs..., nrows)
+    config = launch_configuration(kernel.fun)
+    threads = (config.threads ÷ 32) * 32
+    reduce_blocks = min(cld(nrows, threads), max(1, cld(config.blocks, bs)))
+    kernel(alpha_out, srcs..., nrows; threads, blocks = reduce_blocks * bs)
+end
+
+function MadIPM._ftb_primal_lb!(alpha_out::AnyCuMatrix, dx::AnyCuMatrix, x::AnyCuMatrix, xb::AnyCuMatrix, tau::AnyCuMatrix)
+    _launch_ftb_kernel!(_ftb_primal_lb_kernel!, alpha_out, size(dx, 1), dx, x, xb, tau)
+end
+function MadIPM._ftb_primal_ub!(alpha_out::AnyCuMatrix, dx::AnyCuMatrix, x::AnyCuMatrix, xb::AnyCuMatrix, tau::AnyCuMatrix)
+    _launch_ftb_kernel!(_ftb_primal_ub_kernel!, alpha_out, size(dx, 1), dx, x, xb, tau)
+end
+function MadIPM._ftb_dual_lb!(alpha_out::AnyCuMatrix, dz::AnyCuMatrix, z::AnyCuMatrix, tau::AnyCuMatrix)
+    _launch_ftb_kernel!(_ftb_dual_lb_kernel!, alpha_out, size(dz, 1), dz, z, tau)
+end
+function MadIPM._ftb_dual_ub!(alpha_out::AnyCuMatrix, dz::AnyCuMatrix, z::AnyCuMatrix, tau::AnyCuMatrix)
+    _launch_ftb_kernel!(_ftb_dual_ub_kernel!, alpha_out, size(dz, 1), dz, z, tau)
+end
+
+_affine_compl_lb_kernel!(out, x, xl, z, dx, dz, αp, αd, nrows) = begin
+    bs = size(out, 2)
+    blockIdx_reduce, j = fldmod1(blockIdx().x, bs)
+    gridDim_reduce = gridDim().x ÷ bs
+    T = eltype(out)
+    @inbounds if j <= bs
+        s = zero(T); ap = αp[1, j]; ad = αd[1, j]
+        i = threadIdx().x + (blockIdx_reduce - 1) * blockDim().x
+        while i <= nrows
+            s += (x[i,j] + ap * dx[i,j] - xl[i,j]) * (z[i,j] + ad * dz[i,j])
+            i += blockDim().x * gridDim_reduce
+        end
+        s = CUDA.reduce_block(+, s, zero(T), Val(true))
+        threadIdx().x == 1 && _atomic_colreduce!(+, out, j, s)
+    end
+    return
+end
+
+_affine_compl_ub_kernel!(out, xu, x, z, dx, dz, αp, αd, nrows) = begin
+    bs = size(out, 2)
+    blockIdx_reduce, j = fldmod1(blockIdx().x, bs)
+    gridDim_reduce = gridDim().x ÷ bs
+    T = eltype(out)
+    @inbounds if j <= bs
+        s = zero(T); ap = αp[1, j]; ad = αd[1, j]
+        i = threadIdx().x + (blockIdx_reduce - 1) * blockDim().x
+        while i <= nrows
+            s += (xu[i,j] - (x[i,j] + ap * dx[i,j])) * (z[i,j] + ad * dz[i,j])
+            i += blockDim().x * gridDim_reduce
+        end
+        s = CUDA.reduce_block(+, s, zero(T), Val(true))
+        threadIdx().x == 1 && _atomic_colreduce!(+, out, j, s)
+    end
+    return
+end
+
+function _launch_reduce_kernel!(kernel_fn, out, nrows, srcs...)
+    T = eltype(out)
+    bs = size(out, 2)
+    fill!(out, zero(T))
+    nrows == 0 && return
+    kernel = @cuda launch=false kernel_fn(out, srcs..., nrows)
+    config = launch_configuration(kernel.fun)
+    threads = (config.threads ÷ 32) * 32
+    reduce_blocks = min(cld(nrows, threads), max(1, cld(config.blocks, bs)))
+    kernel(out, srcs..., nrows; threads, blocks = reduce_blocks * bs)
+end
+
+function MadIPM._affine_compl_lb!(out::AnyCuMatrix, x::AnyCuMatrix, xl::AnyCuMatrix, z::AnyCuMatrix,
+                                   dx::AnyCuMatrix, dz::AnyCuMatrix, αp::AnyCuMatrix, αd::AnyCuMatrix)
+    _launch_reduce_kernel!(_affine_compl_lb_kernel!, out, size(x, 1), x, xl, z, dx, dz, αp, αd)
+end
+
+function MadIPM._affine_compl_ub!(out::AnyCuMatrix, xu::AnyCuMatrix, x::AnyCuMatrix, z::AnyCuMatrix,
+                                   dx::AnyCuMatrix, dz::AnyCuMatrix, αp::AnyCuMatrix, αd::AnyCuMatrix)
+    _launch_reduce_kernel!(_affine_compl_ub_kernel!, out, size(x, 1), xu, x, z, dx, dz, αp, αd)
+end
+
+@inline function _warp_argmin(val::T, idx::Int32) where T
+    offset = Int32(16)
+    while offset > Int32(0)
+        other_val = CUDA.shfl_down_sync(0xffffffff, val, offset)
+        other_idx = CUDA.shfl_down_sync(0xffffffff, idx, offset)
+        if other_val < val
+            val = other_val
+            idx = other_idx
+        end
+        offset >>= Int32(1)
+    end
+    return val, idx
+end
+
+_mehrotra_step_kernel!(
+    alpha_p, alpha_d, mu, gamma_f,
+    dx_lr, x_lr, xl_r, nlb::Int32, dzlb, zl_r,
+    dx_ur, x_ur, xu_r, nub::Int32, dzub, zu_r,
+    d_vals, ind_lb, ind_ub, dlb_off::Int32, dub_off::Int32,
+) = begin
+    j = Int32(blockIdx().x)
+    lane = Int32(threadIdx().x - Int32(1))  # 0:31
     T = eltype(alpha_p)
+    INF = T(Inf)
 
-    mu_j = mu[1, j]
-    max_ap = alpha_p[1, j]
-    max_ad = alpha_d[1, j]
-
-    # primal step
-    corrected_p = one(T)
-    @inbounds if max_ap < one(T)
-        i_xl = idx_xl[1, j]
-        i_xu = idx_xu[1, j]
-        if val_xl[1, j] <= val_xu[1, j] && i_xl > Int32(0)
-            idx = ind_lb[i_xl]
-            zl_stepped = zl_vals[idx, j] + max_ad * d_vals[dlb_off + i_xl, j]
-            corrected_p = (x_vals[idx, j] - xl_vals[idx, j] - mu_j / zl_stepped) / (-d_vals[idx, j])
-        elseif i_xu > Int32(0)
-            idx = ind_ub[i_xu]
-            zu_stepped = zu_vals[idx, j] + max_ad * d_vals[dub_off + i_xu, j]
-            corrected_p = (xu_vals[idx, j] - x_vals[idx, j] - mu_j / zu_stepped) / d_vals[idx, j]
-        end
-    end
-    @inbounds alpha_p[1, j] = max(corrected_p, gamma_f * max_ap)
-
-    # dual step
-    corrected_d = one(T)
-    @inbounds if max_ad < one(T)
-        i_zl = idx_zl[1, j]
-        i_zu = idx_zu[1, j]
-        if val_zl[1, j] <= val_zu[1, j] && i_zl > Int32(0)
-            idx = ind_lb[i_zl]
-            x_gap = x_vals[idx, j] + max_ap * d_vals[idx, j] - xl_vals[idx, j]
-            corrected_d = -(zl_vals[idx, j] - mu_j / x_gap) / d_vals[dlb_off + i_zl, j]
-        elseif i_zu > Int32(0)
-            idx = ind_ub[i_zu]
-            x_gap = xu_vals[idx, j] - x_vals[idx, j] - max_ap * d_vals[idx, j]
-            corrected_d = -(zu_vals[idx, j] - mu_j / x_gap) / d_vals[dub_off + i_zu, j]
-        end
-    end
-    @inbounds alpha_d[1, j] = max(corrected_d, gamma_f * max_ad)
-end
-
-@kernel function _gather_compl_kernel!(
-    scratch, @Const(x_vals), @Const(xb_vals), @Const(z_vals), @Const(ind),
-)
-    i, j = @index(Global, NTuple)
+    # primal lb
+    best_xl = INF; i_xl = Int32(0)
     @inbounds begin
-        idx = ind[i]
-        scratch[i, j] = abs(x_vals[idx, j] - xb_vals[idx, j]) * z_vals[idx, j]
+        k = lane + Int32(1)
+        while k <= nlb
+            d = dx_lr[k, j]
+            if d < zero(T)
+                v = (xl_r[k, j] - x_lr[k, j]) / d
+                if v < best_xl
+                    best_xl = v; i_xl = k
+                end
+            end
+            k += Int32(32)
+        end
     end
+    best_xl, i_xl = _warp_argmin(best_xl, i_xl)
+
+    # primal ub
+    best_xu = INF; i_xu = Int32(0)
+    @inbounds begin
+        k = lane + Int32(1)
+        while k <= nub
+            d = dx_ur[k, j]
+            if d > zero(T)
+                v = (xu_r[k, j] - x_ur[k, j]) / d
+                if v < best_xu
+                    best_xu = v; i_xu = k
+                end
+            end
+            k += Int32(32)
+        end
+    end
+    best_xu, i_xu = _warp_argmin(best_xu, i_xu)
+
+    # dual lb
+    best_zl = INF; i_zl = Int32(0)
+    @inbounds begin
+        k = lane + Int32(1)
+        while k <= nlb
+            d = dzlb[k, j]
+            if d < zero(T)
+                v = -zl_r[k, j] / d
+                if v < best_zl
+                    best_zl = v; i_zl = k
+                end
+            end
+            k += Int32(32)
+        end
+    end
+    best_zl, i_zl = _warp_argmin(best_zl, i_zl)
+
+    # dual ub
+    best_zu = INF; i_zu = Int32(0)
+    @inbounds begin
+        k = lane + Int32(1)
+        while k <= nub
+            d = dzub[k, j]
+            if d < zero(T) && zu_r[k, j] + d < zero(T)
+                v = -zu_r[k, j] / d
+                if v < best_zu
+                    best_zu = v; i_zu = k
+                end
+            end
+            k += Int32(32)
+        end
+    end
+    best_zu, i_zu = _warp_argmin(best_zu, i_zu)
+
+    # lane 0: compute corrected steps
+    @inbounds if lane == Int32(0)
+        mu_j = mu[1, j]
+        max_ap = alpha_p[1, j]
+        max_ad = alpha_d[1, j]
+
+        # corrected primal
+        corrected_p = one(T)
+        if max_ap < one(T)
+            if best_xl <= best_xu && i_xl > Int32(0)
+                zl_stepped = zl_r[i_xl, j] + max_ad * d_vals[dlb_off + i_xl, j]
+                corrected_p = (x_lr[i_xl, j] - xl_r[i_xl, j] - mu_j / zl_stepped) / (-dx_lr[i_xl, j])
+            elseif i_xu > Int32(0)
+                zu_stepped = zu_r[i_xu, j] + max_ad * d_vals[dub_off + i_xu, j]
+                corrected_p = (xu_r[i_xu, j] - x_ur[i_xu, j] - mu_j / zu_stepped) / dx_ur[i_xu, j]
+            end
+        end
+        alpha_p[1, j] = max(corrected_p, gamma_f * max_ap)
+
+        # corrected dual
+        corrected_d = one(T)
+        if max_ad < one(T)
+            if best_zl <= best_zu && i_zl > Int32(0)
+                x_gap = x_lr[i_zl, j] + max_ap * dx_lr[i_zl, j] - xl_r[i_zl, j]
+                corrected_d = -(zl_r[i_zl, j] - mu_j / x_gap) / d_vals[dlb_off + i_zl, j]
+            elseif i_zu > Int32(0)
+                x_gap = xu_r[i_zu, j] - x_ur[i_zu, j] - max_ap * dx_ur[i_zu, j]
+                corrected_d = -(zu_r[i_zu, j] - mu_j / x_gap) / d_vals[dub_off + i_zu, j]
+            end
+        end
+        alpha_d[1, j] = max(corrected_d, gamma_f * max_ad)
+    end
+    return nothing
 end
 
-function MadIPM.get_inf_compl!(
-    inf_compl::CuMatrix, x::MadIPM.BatchPrimalVector, xl::MadIPM.BatchPrimalVector,
-    zl::MadIPM.BatchPrimalVector, xu::MadIPM.BatchPrimalVector, zu::MadIPM.BatchPrimalVector,
-    scratch_lb::CuMatrix, scratch_ub::CuMatrix, sum_lb, sum_ub, nlb, nub,
+function MadIPM._mehrotra_step!(
+    alpha_p::AnyCuMatrix, alpha_d, mu, gamma_f,
+    dx_lr, x_lr, xl_r, nlb, dzlb, zl_r,
+    dx_ur, x_ur, xu_r, nub, dzub, zu_r,
+    d_vals, ind_lb, ind_ub, dlb_off, dub_off,
 )
-    T = eltype(inf_compl)
-    bs = size(inf_compl, 2)
-    backend = CUDABackend()
-    if nlb > 0
-        _gather_compl_kernel!(backend)(
-            scratch_lb, x.values, xl.values, zl.values, x.ind_lb;
-            ndrange=(nlb, bs),
-        )
-        KernelAbstractions.synchronize(backend)
-        maximum!(sum_lb, scratch_lb)
-    else
-        fill!(sum_lb, zero(T))
-    end
-    if nub > 0
-        _gather_compl_kernel!(backend)(
-            scratch_ub, xu.values, x.values, zu.values, x.ind_ub;
-            ndrange=(nub, bs),
-        )
-        KernelAbstractions.synchronize(backend)
-        maximum!(sum_ub, scratch_ub)
-    else
-        fill!(sum_ub, zero(T))
-    end
-    @. inf_compl = max(sum_lb, sum_ub)
-    return inf_compl
-end
-
-function MadIPM._mehrotra_correct_steps!(
-    alpha_p::CuMatrix{T}, alpha_d::CuMatrix{T}, mu,
-    val_xl, idx_xl, val_xu, idx_xu,
-    val_zl, idx_zl, val_zu, idx_zu,
-    d_vals, x_vals, xl_vals, xu_vals, zl_vals, zu_vals,
-    ind_lb, ind_ub, dlb_off::Int, dub_off::Int, gamma_f,
-) where T
-    bs = size(alpha_p, 2)
-    if bs > 0
-        backend = CUDABackend()
-        _mehrotra_correction_kernel!(backend)(
-            alpha_p, alpha_d, mu,
-            val_xl, idx_xl, val_xu, idx_xu,
-            val_zl, idx_zl, val_zu, idx_zu,
-            d_vals, x_vals, xl_vals, xu_vals, zl_vals, zu_vals,
-            ind_lb, ind_ub,
-            Int32(dlb_off), Int32(dub_off), gamma_f;
-            ndrange = bs,
-        )
-        KernelAbstractions.synchronize(backend)
-    end
+    CUDA.@cuda threads=32 blocks=bs _mehrotra_step_kernel!(
+        alpha_p, alpha_d, mu, gamma_f,
+        dx_lr, x_lr, xl_r, Int32(nlb), dzlb, zl_r,
+        dx_ur, x_ur, xu_r, Int32(nub), dzub, zu_r,
+        d_vals, ind_lb, ind_ub, Int32(dlb_off), Int32(dub_off),
+    )
+    return
 end
 
 @kernel function _reduce_rhs_lb_kernel!(values, @Const(ind_lb), lb_off, @Const(l_diag))

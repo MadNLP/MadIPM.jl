@@ -1,29 +1,25 @@
-function get_inf_pr!(inf_pr, c, scratch)
-    @. scratch = abs(c)
-    maximum!(inf_pr, scratch)
+function get_inf_pr!(inf_pr, c)
+    batch_mapreduce!(abs, max, zero(eltype(inf_pr)), inf_pr, c)
     return inf_pr
 end
 
-function get_inf_du!(inf_du, f_vals, zl_vals, zu_vals, jacl_vals, scratch)
-    @. scratch = abs(f_vals - zl_vals + zu_vals + jacl_vals)
-    maximum!(inf_du, scratch)
+function get_inf_du!(inf_du, f_vals, zl_vals, zu_vals, jacl_vals)
+    batch_mapreduce!((f, zl, zu, jl) -> abs(f - zl + zu + jl), max, zero(eltype(inf_du)),
+                     inf_du, f_vals, zl_vals, zu_vals, jacl_vals)
     return inf_du
 end
 
-function get_inf_compl!(inf_compl, x, xl, zl, xu, zu,
-                        scratch_lb, scratch_ub, sum_lb, sum_ub, nlb, nub)
+function get_inf_compl!(inf_compl, x, xl, zl, xu, zu, sum_lb, sum_ub, nlb, nub)
     T = eltype(inf_compl)
     if nlb > 0
-        x_lr = lower(x); xl_r = lower(xl); zl_r = lower(zl)
-        @. scratch_lb = abs(x_lr - xl_r) * zl_r
-        maximum!(sum_lb, scratch_lb)
+        batch_mapreduce!((x, xl, z) -> abs(x - xl) * z, max, zero(T),
+                         sum_lb, lower(x), lower(xl), lower(zl))
     else
         fill!(sum_lb, zero(T))
     end
     if nub > 0
-        xu_r = upper(xu); x_ur = upper(x); zu_r = upper(zu)
-        @. scratch_ub = abs(xu_r - x_ur) * zu_r
-        maximum!(sum_ub, scratch_ub)
+        batch_mapreduce!((xu, x, z) -> abs(xu - x) * z, max, zero(T),
+                         sum_ub, upper(xu), upper(x), upper(zu))
     else
         fill!(sum_ub, zero(T))
     end

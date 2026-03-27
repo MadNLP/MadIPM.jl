@@ -1,16 +1,14 @@
 function dual_objective!(dual_obj, y_vals, rhs_vals, zl_r, xl_r, zu_r, xu_r,
-                         scratch_m, scratch_lb, scratch_ub, sum_lb, sum_ub, nlb, nub)
-    @. scratch_m = y_vals * rhs_vals
-    sum!(dual_obj, scratch_m)
-    dual_obj .*= -one(eltype(dual_obj))
+                         sum_lb, sum_ub, nlb, nub)
+    T = eltype(dual_obj)
+    batch_mapreduce!(*, +, zero(T), dual_obj, y_vals, rhs_vals)
+    dual_obj .*= -one(T)
     if nlb > 0
-        @. scratch_lb = zl_r * xl_r
-        sum!(sum_lb, scratch_lb)
+        batch_mapreduce!(*, +, zero(T), sum_lb, zl_r, xl_r)
         dual_obj .+= sum_lb
     end
     if nub > 0
-        @. scratch_ub = zu_r * xu_r
-        sum!(sum_ub, scratch_ub)
+        batch_mapreduce!(*, +, zero(T), sum_ub, zu_r, xu_r)
         dual_obj .-= sum_ub
     end
     return dual_obj
@@ -144,14 +142,8 @@ function get_complementarity_measure!(solver::AbstractBatchMPCSolver)
     x_ur = upper(solver.x)
     zu_r = upper(solver.zu)
 
-    ws.sum_lb .= mapreduce(
-        (x, xl, z) -> (x - xl) * z, +, x_lr, xl_r, zl_r;
-        dims=1, init=zero(T),
-    )
-    ws.sum_ub .= mapreduce(
-        (xu, x, z) -> (xu - x) * z, +, xu_r, x_ur, zu_r;
-        dims=1, init=zero(T),
-    )
+    batch_mapreduce!((x, xl, z) -> (x - xl) * z, +, zero(T), ws.sum_lb, x_lr, xl_r, zl_r)
+    batch_mapreduce!((xu, x, z) -> (xu - x) * z, +, zero(T), ws.sum_ub, xu_r, x_ur, zu_r)
     @. ws.mu_curr = (ws.sum_lb + ws.sum_ub) / (nlb + nub)
     return ws.mu_curr
 end
@@ -177,14 +169,8 @@ function get_affine_complementarity_measure!(solver::AbstractBatchMPCSolver, alp
     dzlb = MadNLP.dual_lb(solver.d)
     dzub = MadNLP.dual_ub(solver.d)
 
-    _scratch_lb = MadNLP.dual_lb(solver._w2)
-    @. _scratch_lb = (x_lr + alpha_p * dx_lr - xl_r) * (zl_r + alpha_d * dzlb)
-    sum!(ws.sum_lb, _scratch_lb)
-
-    _scratch_ub = MadNLP.dual_ub(solver._w2)
-    @. _scratch_ub = (xu_r - (x_ur + alpha_p * dx_ur)) * (zu_r + alpha_d * dzub)
-    sum!(ws.sum_ub, _scratch_ub)
-
+    _affine_compl_lb!(ws.sum_lb, x_lr, xl_r, zl_r, dx_lr, dzlb, alpha_p, alpha_d)
+    _affine_compl_ub!(ws.sum_ub, xu_r, x_ur, zu_r, dx_ur, dzub, alpha_p, alpha_d)
     @. ws.mu_affine = (ws.sum_lb + ws.sum_ub) / (nlb + nub)
     return ws.mu_affine
 end
@@ -213,32 +199,17 @@ function get_fraction_to_boundary_step!(batch_solver::AbstractBatchMPCSolver)
     nlb, nub = d.nlb, d.nub
     T = eltype(ws.alpha_p)
 
-    # can't use mapreduce since tau is (1, bs), not (nlb, bs)
     if nlb > 0
-        _dx_lr = xp_lr(d); _xl_r = lower(xl); _x_lr = lower(x)  # (nlb, bs)
-        _dzlb = MadNLP.dual_lb(d); _zl_r = lower(zl)              # (nlb, bs)
-        _scratch_lb = MadNLP.dual_lb(batch_solver._w2)             # (nlb, bs)
-
-        @. _scratch_lb = ifelse(_dx_lr < 0, (-_x_lr + _xl_r) * ws.tau / _dx_lr, T(Inf))
-        minimum!(ws.alpha_xl, _scratch_lb)
-
-        @. _scratch_lb = ifelse(_dzlb < 0, (-_zl_r) * ws.tau / _dzlb, T(Inf))
-        minimum!(ws.alpha_zl, _scratch_lb)
+        _ftb_primal_lb!(ws.alpha_xl, xp_lr(d), lower(x), lower(xl), ws.tau)
+        _ftb_dual_lb!(ws.alpha_zl, MadNLP.dual_lb(d), lower(zl), ws.tau)
     else
         fill!(ws.alpha_xl, one(T))
         fill!(ws.alpha_zl, one(T))
     end
 
     if nub > 0
-        _dx_ur = xp_ur(d); _xu_r = upper(xu); _x_ur = upper(x)
-        _dzub = MadNLP.dual_ub(d); _zu_r = upper(zu)
-        _scratch_ub = MadNLP.dual_ub(batch_solver._w2)
-
-        @. _scratch_ub = ifelse(_dx_ur > 0, (-_x_ur + _xu_r) * ws.tau / _dx_ur, T(Inf))
-        minimum!(ws.alpha_xu, _scratch_ub)
-
-        @. _scratch_ub = ifelse((_dzub < 0) & (_zu_r + _dzub < 0), (-_zu_r) * ws.tau / _dzub, T(Inf))
-        minimum!(ws.alpha_zu, _scratch_ub)
+        _ftb_primal_ub!(ws.alpha_xu, xp_ur(d), upper(x), upper(xu), ws.tau)
+        _ftb_dual_ub!(ws.alpha_zu, MadNLP.dual_ub(d), upper(zu), ws.tau)
     else
         fill!(ws.alpha_xu, one(T))
         fill!(ws.alpha_zu, one(T))
@@ -247,6 +218,92 @@ function get_fraction_to_boundary_step!(batch_solver::AbstractBatchMPCSolver)
     ws.alpha_p .= min.(ws.alpha_xl, ws.alpha_xu, one(T))
     ws.alpha_d .= min.(ws.alpha_zl, ws.alpha_zu, one(T))
     return
+end
+
+function _ftb_primal_lb!(alpha_out, dx, x, xb, tau)
+    T = eltype(alpha_out)
+    n, bs = size(dx)
+    @inbounds for j in 1:bs
+        a = T(Inf)
+        τ = tau[1, j]
+        for i in 1:n
+            d = dx[i, j]
+            d < zero(T) || continue
+            a = min(a, (-x[i, j] + xb[i, j]) * τ / d)
+        end
+        alpha_out[1, j] = a
+    end
+end
+
+function _ftb_primal_ub!(alpha_out, dx, x, xb, tau)
+    T = eltype(alpha_out)
+    n, bs = size(dx)
+    @inbounds for j in 1:bs
+        a = T(Inf)
+        τ = tau[1, j]
+        for i in 1:n
+            d = dx[i, j]
+            d > zero(T) || continue
+            a = min(a, (-x[i, j] + xb[i, j]) * τ / d)
+        end
+        alpha_out[1, j] = a
+    end
+end
+
+function _ftb_dual_lb!(alpha_out, dz, z, tau)
+    T = eltype(alpha_out)
+    n, bs = size(dz)
+    @inbounds for j in 1:bs
+        a = T(Inf)
+        τ = tau[1, j]
+        for i in 1:n
+            d = dz[i, j]
+            d < zero(T) || continue
+            a = min(a, -z[i, j] * τ / d)
+        end
+        alpha_out[1, j] = a
+    end
+end
+
+function _ftb_dual_ub!(alpha_out, dz, z, tau)
+    T = eltype(alpha_out)
+    n, bs = size(dz)
+    @inbounds for j in 1:bs
+        a = T(Inf)
+        τ = tau[1, j]
+        for i in 1:n
+            d = dz[i, j]
+            (d < zero(T) && z[i, j] + d < zero(T)) || continue
+            a = min(a, -z[i, j] * τ / d)
+        end
+        alpha_out[1, j] = a
+    end
+end
+
+function _affine_compl_lb!(out, x, xl, z, dx, dz, αp, αd)
+    T = eltype(out)
+    n, bs = size(x)
+    @inbounds for j in 1:bs
+        s = zero(T)
+        ap = αp[1, j]; ad = αd[1, j]
+        for i in 1:n
+            s += (x[i,j] + ap * dx[i,j] - xl[i,j]) * (z[i,j] + ad * dz[i,j])
+        end
+        out[1, j] = s
+    end
+end
+
+function _affine_compl_ub!(out, xu, x, z, dx, dz, αp, αd)
+    T = eltype(out)
+    n, bs = size(x)
+    @inbounds for j in 1:bs
+        s = zero(T)
+        ap = αp[1, j]; ad = αd[1, j]
+        for i in 1:n
+            s += (xu[i,j] - (x[i,j] + ap * dx[i,j])) * (z[i,j] + ad * dz[i,j])
+        end
+        out[1, j] = s
+    end
 end
 
 function set_tau!(rule::ConservativeStep, batch_solver::AbstractBatchMPCSolver)
@@ -262,53 +319,94 @@ function update_step!(rule::Union{ConservativeStep, AdaptiveStep}, batch_solver:
     return
 end
 
-function _mehrotra_correct_steps!(
-    alpha_p, alpha_d, mu,
-    val_xl, idx_xl, val_xu, idx_xu,
-    val_zl, idx_zl, val_zu, idx_zu,
-    d_vals, x_vals, xl_vals, xu_vals, zl_vals, zu_vals,
-    ind_lb, ind_ub, dlb_off::Int, dub_off::Int, gamma_f,
+function _mehrotra_step!(
+    alpha_p, alpha_d, mu, gamma_f,
+    dx_lr, x_lr, xl_r, nlb, dzlb, zl_r,
+    dx_ur, x_ur, xu_r, nub, dzub, zu_r,
+    d_vals, ind_lb, ind_ub, dlb_off, dub_off,
 )
-    T = eltype(alpha_p)
-    @inbounds for j in axes(alpha_p, 2)
-        mu_j = mu[1, j]
-        max_ap = alpha_p[1, j]
-        max_ad = alpha_d[1, j]
-
-        # primal step
-        corrected_p = one(T)
-        if max_ap < one(T)
-            i_xl = idx_xl[1, j]
-            i_xu = idx_xu[1, j]
-            if val_xl[1, j] <= val_xu[1, j] && i_xl > 0
-                idx = ind_lb[i_xl]
-                zl_stepped = zl_vals[idx, j] + max_ad * d_vals[dlb_off + i_xl, j]
-                corrected_p = (x_vals[idx, j] - xl_vals[idx, j] - mu_j / zl_stepped) / (-d_vals[idx, j])
-            elseif i_xu > 0
-                idx = ind_ub[i_xu]
-                zu_stepped = zu_vals[idx, j] + max_ad * d_vals[dub_off + i_xu, j]
-                corrected_p = (xu_vals[idx, j] - x_vals[idx, j] - mu_j / zu_stepped) / d_vals[idx, j]
-            end
-        end
-        alpha_p[1, j] = max(corrected_p, gamma_f * max_ap)
-
-        # dual step
-        corrected_d = one(T)
-        if max_ad < one(T)
-            i_zl = idx_zl[1, j]
-            i_zu = idx_zu[1, j]
-            if val_zl[1, j] <= val_zu[1, j] && i_zl > 0
-                idx = ind_lb[i_zl]
-                x_gap = x_vals[idx, j] + max_ap * d_vals[idx, j] - xl_vals[idx, j]
-                corrected_d = -(zl_vals[idx, j] - mu_j / x_gap) / d_vals[dlb_off + i_zl, j]
-            elseif i_zu > 0
-                idx = ind_ub[i_zu]
-                x_gap = xu_vals[idx, j] - x_vals[idx, j] - max_ap * d_vals[idx, j]
-                corrected_d = -(zu_vals[idx, j] - mu_j / x_gap) / d_vals[dub_off + i_zu, j]
-            end
-        end
-        alpha_d[1, j] = max(corrected_d, gamma_f * max_ad)
+    for j in axes(alpha_p, 2)
+        _mehrotra_step_column!(
+            j, alpha_p, alpha_d, mu[1, j], gamma_f,
+            dx_lr, x_lr, xl_r, nlb, dzlb, zl_r,
+            dx_ur, x_ur, xu_r, nub, dzub, zu_r,
+            d_vals, ind_lb, ind_ub, dlb_off, dub_off,
+        )
     end
+end
+
+@inline function _mehrotra_step_column!(
+    j, alpha_p, alpha_d, mu_j::T, gamma_f::T,
+    dx_lr, x_lr, xl_r, nlb, dzlb, zl_r,
+    dx_ur, x_ur, xu_r, nub, dzub, zu_r,
+    d_vals, ind_lb, ind_ub, dlb_off, dub_off,
+) where T
+    max_ap = alpha_p[1, j]
+    max_ad = alpha_d[1, j]
+
+    # primal lb
+    best_xl = T(Inf); i_xl = 0
+    @inbounds for i in 1:nlb
+        d = dx_lr[i, j]
+        d < zero(T) || continue
+        v = (xl_r[i, j] - x_lr[i, j]) / d
+        v < best_xl && (best_xl = v; i_xl = i)
+    end
+    # primal ub
+    best_xu = T(Inf); i_xu = 0
+    @inbounds for i in 1:nub
+        d = dx_ur[i, j]
+        d > zero(T) || continue
+        v = (xu_r[i, j] - x_ur[i, j]) / d
+        v < best_xu && (best_xu = v; i_xu = i)
+    end
+    # dual lb
+    best_zl = T(Inf); i_zl = 0
+    @inbounds for i in 1:nlb
+        d = dzlb[i, j]
+        d < zero(T) || continue
+        v = -zl_r[i, j] / d
+        v < best_zl && (best_zl = v; i_zl = i)
+    end
+    # dual ub
+    best_zu = T(Inf); i_zu = 0
+    @inbounds for i in 1:nub
+        d = dzub[i, j]
+        (d < zero(T) && zu_r[i, j] + d < zero(T)) || continue
+        v = -zu_r[i, j] / d
+        v < best_zu && (best_zu = v; i_zu = i)
+    end
+
+    # primal step
+    corrected_p = one(T)
+    @inbounds if max_ap < one(T)
+        if best_xl <= best_xu && i_xl > 0
+            idx = ind_lb[i_xl]
+            zl_stepped = zl_r[i_xl, j] + max_ad * d_vals[dlb_off + i_xl, j]
+            corrected_p = (x_lr[i_xl, j] - xl_r[i_xl, j] - mu_j / zl_stepped) / (-dx_lr[i_xl, j])
+        elseif i_xu > 0
+            idx = ind_ub[i_xu]
+            zu_stepped = zu_r[i_xu, j] + max_ad * d_vals[dub_off + i_xu, j]
+            corrected_p = (xu_r[i_xu, j] - x_ur[i_xu, j] - mu_j / zu_stepped) / dx_ur[i_xu, j]
+        end
+    end
+    alpha_p[1, j] = max(corrected_p, gamma_f * max_ap)
+
+    # dual step
+    corrected_d = one(T)
+    @inbounds if max_ad < one(T)
+        if best_zl <= best_zu && i_zl > 0
+            idx = ind_lb[i_zl]
+            x_gap = x_lr[i_zl, j] + max_ap * dx_lr[i_zl, j] - xl_r[i_zl, j]
+            corrected_d = -(zl_r[i_zl, j] - mu_j / x_gap) / d_vals[dlb_off + i_zl, j]
+        elseif i_zu > 0
+            idx = ind_ub[i_zu]
+            x_gap = xu_r[i_zu, j] - x_ur[i_zu, j] - max_ap * dx_ur[i_zu, j]
+            corrected_d = -(zu_r[i_zu, j] - mu_j / x_gap) / d_vals[dub_off + i_zu, j]
+        end
+    end
+    alpha_d[1, j] = max(corrected_d, gamma_f * max_ad)
+    return
 end
 
 function update_step!(rule::MehrotraAdaptiveStep, batch_solver::AbstractBatchMPCSolver)
@@ -329,79 +427,58 @@ function update_step!(rule::MehrotraAdaptiveStep, batch_solver::AbstractBatchMPC
 
     dlb_off = d.n + d.m
     dub_off = d.n + d.m + d.nlb
+    bs = batch_solver.batch_size
 
-    if nlb > 0
-        _scratch_lb = MadNLP.dual_lb(batch_solver._w2)
-        _dx_lr = xp_lr(d); _xl_r = lower(xl); _x_lr = lower(x)
-        _dzlb = MadNLP.dual_lb(d); _zl_r = lower(zl)
-
-        map!((dx, xl, x) -> dx < 0 ? (xl - x) / dx : T(Inf), _scratch_lb, _dx_lr, _xl_r, _x_lr)
-        _vals, _inds = findmin(_scratch_lb; dims=1)
-        copyto!(ws.alpha_xl, _vals)
-        ws.idx_xl .= getindex.(_inds, 1)
-
-        map!((dz, z) -> dz < 0 ? -z / dz : T(Inf), _scratch_lb, _dzlb, _zl_r)
-        _vals, _inds = findmin(_scratch_lb; dims=1)
-        copyto!(ws.alpha_zl, _vals)
-        ws.idx_zl .= getindex.(_inds, 1)
-    else
-        fill!(ws.alpha_xl, one(T)); fill!(ws.idx_xl, 0)
-        fill!(ws.alpha_zl, one(T)); fill!(ws.idx_zl, 0)
-    end
-
-    if nub > 0
-        _scratch_ub = MadNLP.dual_ub(batch_solver._w2)
-        _dx_ur = xp_ur(d); _xu_r = upper(xu); _x_ur = upper(x)
-        _dzub = MadNLP.dual_ub(d); _zu_r = upper(zu)
-
-        map!((dx, xu, x) -> dx > 0 ? (xu - x) / dx : T(Inf), _scratch_ub, _dx_ur, _xu_r, _x_ur)
-        _vals, _inds = findmin(_scratch_ub; dims=1)
-        copyto!(ws.alpha_xu, _vals)
-        ws.idx_xu .= getindex.(_inds, 1)
-
-        map!((dz, z) -> (dz < 0) & (z + dz < 0) ? -z / dz : T(Inf), _scratch_ub, _dzub, _zu_r)
-        _vals, _inds = findmin(_scratch_ub; dims=1)
-        copyto!(ws.alpha_zu, _vals)
-        ws.idx_zu .= getindex.(_inds, 1)
-    else
-        fill!(ws.alpha_xu, one(T)); fill!(ws.idx_xu, 0)
-        fill!(ws.alpha_zu, one(T)); fill!(ws.idx_zu, 0)
-    end
-
-    _mehrotra_correct_steps!(
-        ws.alpha_p, ws.alpha_d, mu_full,
-        ws.alpha_xl, ws.idx_xl, ws.alpha_xu, ws.idx_xu,
-        ws.alpha_zl, ws.idx_zl, ws.alpha_zu, ws.idx_zu,
-        d.values, x.values, xl.values, xu.values, zl.values, zu.values,
-        d.ind_lb, d.ind_ub, dlb_off, dub_off, gamma_f,
+    _mehrotra_step!(
+        ws.alpha_p, ws.alpha_d, mu_full, gamma_f,
+        xp_lr(d), lower(x), lower(xl), nlb, MadNLP.dual_lb(d), lower(zl),
+        xp_ur(d), upper(x), upper(xu), nub, MadNLP.dual_ub(d), upper(zu),
+        d.values, d.ind_lb, d.ind_ub, dlb_off, dub_off,
     )
-
     return
+end
+
+# FIXME: make it a kernel
+function _adjust_boundary_active!(x_lr::AbstractMatrix{T}, xl_r, x_ur, xu_r, mu, mask) where {T}
+    c2 = eps(T)^(T(3)/T(4))
+    c1 = eps(T)
+    xl_r .= ifelse.(
+        (mask .!= 0) .& (x_lr .- xl_r .< (c1 .* mu)),
+        xl_r .- c2 .* max.(one(T), abs.(x_lr)),
+        xl_r,
+    )
+    xu_r .= ifelse.(
+        (mask .!= 0) .& (xu_r .- x_ur .< (c1 .* mu)),
+        xu_r .+ c2 .* max.(one(T), abs.(x_ur)),
+        xu_r,
+    )
 end
 
 function init_regularization!(solver::AbstractBatchMPCSolver, ::NoRegularization)
     fill!(solver.del_w, 1.0)
     fill!(solver.del_c, 0.0)
 end
-function update_regularization!(solver::AbstractBatchMPCSolver, ::NoRegularization)
-    fill!(solver.del_w, 0.0)
-    fill!(solver.del_c, 0.0)
+update_regularization!(solver::AbstractBatchMPCSolver, reg) =
+    update_regularization!(solver, reg, solver.workspace.active_mask)
+function update_regularization!(solver::AbstractBatchMPCSolver, ::NoRegularization, mask)
+    solver.del_w .= ifelse.(mask .== 1, 0.0, solver.del_w)
+    solver.del_c .= ifelse.(mask .== 1, 0.0, solver.del_c)
 end
 function init_regularization!(solver::AbstractBatchMPCSolver, reg::FixedRegularization)
     fill!(solver.del_w, 1.0)
     fill!(solver.del_c, reg.delta_d)
 end
-function update_regularization!(solver::AbstractBatchMPCSolver, reg::FixedRegularization)
-    fill!(solver.del_w, reg.delta_p)
-    fill!(solver.del_c, reg.delta_d)
+function update_regularization!(solver::AbstractBatchMPCSolver, reg::FixedRegularization, mask)
+    solver.del_w .= ifelse.(mask .== 1, reg.delta_p, solver.del_w)
+    solver.del_c .= ifelse.(mask .== 1, reg.delta_d, solver.del_c)
 end
 function init_regularization!(solver::AbstractBatchMPCSolver, reg::AdaptiveRegularization)
     fill!(solver.del_w, 1.0)
     fill!(solver.del_c, reg.delta_d)
 end
-function update_regularization!(solver::AbstractBatchMPCSolver, reg::AdaptiveRegularization)
+function update_regularization!(solver::AbstractBatchMPCSolver, reg::AdaptiveRegularization, mask)
     reg.delta_p = max(reg.delta_p / 10.0, reg.delta_min)
     reg.delta_d = min(reg.delta_d / 10.0, -reg.delta_min)
-    fill!(solver.del_w, reg.delta_p)
-    fill!(solver.del_c, reg.delta_d)
+    solver.del_w .= ifelse.(mask .== 1, reg.delta_p, solver.del_w)
+    solver.del_c .= ifelse.(mask .== 1, reg.delta_d, solver.del_c)
 end

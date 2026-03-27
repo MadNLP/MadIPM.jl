@@ -5,10 +5,6 @@ struct UniformBatchWorkspace{T, VT<:AbstractVector{T}, MT<:AbstractMatrix{T}, MI
     alpha_zu::MT
     alpha_p::MT
     alpha_d::MT
-    idx_xl::MI
-    idx_xu::MI
-    idx_zl::MI
-    idx_zu::MI
     tau::MT
 
     mu_batch::MT
@@ -53,8 +49,6 @@ function UniformBatchWorkspace(::Type{MT}, ::Type{VT}, n::Int, m::Int, nlb::Int,
         MT(undef, 1, batch_size), MT(undef, 1, batch_size),  # alpha_xl, alpha_xu
         MT(undef, 1, batch_size), MT(undef, 1, batch_size),  # alpha_zl, alpha_zu
         MT(undef, 1, batch_size), MT(undef, 1, batch_size),  # alpha_p, alpha_d
-        similar(_proto, Int32), similar(_proto, Int32),       # idx_xl, idx_xu
-        similar(_proto, Int32), similar(_proto, Int32),       # idx_zl, idx_zu
         MT(undef, 1, batch_size),  # tau
         MT(undef, 1, batch_size), MT(undef, 1, batch_size),  # mu_batch, mu_curr
         MT(undef, 1, batch_size), MT(undef, 1, batch_size),  # mu_affine, sum_lb
@@ -90,7 +84,6 @@ mutable struct UniformBatchMPCSolver{T, MT, VT, VI, BM, BCB} <: AbstractBatchMPC
     d::BatchUnreducedKKTVector{T, MT}
     p::BatchUnreducedKKTVector{T, MT}
     _w1::BatchUnreducedKKTVector{T, MT}
-    _w2::BatchUnreducedKKTVector{T, MT}
 
     x::BatchPrimalVector{T, MT}
     xl::BatchPrimalVector{T, MT}
@@ -187,7 +180,6 @@ function UniformBatchMPCSolver(
     batch_d  = BatchUnreducedKKTVector(MT, VT, n, m, nlb, nub, batch_size, ind_lb, ind_ub)
     batch_p  = BatchUnreducedKKTVector(MT, VT, n, m, nlb, nub, batch_size, ind_lb, ind_ub)
     batch_w1 = BatchUnreducedKKTVector(MT, VT, n, m, nlb, nub, batch_size, ind_lb, ind_ub)
-    batch_w2 = BatchUnreducedKKTVector(MT, VT, n, m, nlb, nub, batch_size, ind_lb, ind_ub)
 
     batch_correction_lb = BatchVector(MT, VT, nlb, batch_size)
     batch_correction_ub = BatchVector(MT, VT, nub, batch_size)
@@ -204,7 +196,7 @@ function UniformBatchMPCSolver(
 
     return UniformBatchMPCSolver{T, MT, VT, VI, typeof(bnlp), typeof(bcb)}(
         batch_size,
-        batch_d, batch_p, batch_w1, batch_w2,
+        batch_d, batch_p, batch_w1,
         batch_x, batch_xl, batch_xu, batch_zl, batch_zu, batch_f,
         batch_y, batch_c, batch_jacl, batch_rhs,
         batch_correction_lb, batch_correction_ub,
