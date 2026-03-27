@@ -34,12 +34,11 @@
 
             # Mark instance 2 as converged
             bat.workspace.status[2] = MadNLP.SOLVE_SUCCEEDED
-            MadIPM.update_active_set!(bat.kkt, bat.workspace.status)
+            MadIPM.update_active_set!(bat)
+            active = MadIPM.active_view(bat.batch_views)
 
-            @test bat.kkt.active_batch_size[] == 2
-            @test bat.kkt.batch_map[2] == 0  # deactivated
-            @test bat.kkt.batch_map[1] != 0  # still active
-            @test bat.kkt.batch_map[3] != 0  # still active
+            @test MadIPM.local_batch_size(active) == 2
+            @test Int[active.local_to_root[i] for i in 1:active.n] == [1, 3]
 
             # zero_inactive_step! should zero out the deactivated instance
             fill!(bat.workspace.active_mask, 1.0)

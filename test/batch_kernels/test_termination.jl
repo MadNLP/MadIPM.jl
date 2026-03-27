@@ -11,8 +11,8 @@
                 MadIPM.update_termination_criteria!(bat)
                 changed = MadIPM.update_termination_status!(bat)
                 if changed
-                    MadIPM.update_active_set!(bat.kkt, bat.workspace.status)
-                    bat.kkt.active_batch_size[] == 0 && break
+                    MadIPM.update_active_set!(bat)
+                    MadIPM.local_batch_size(MadIPM.active_view(bat.batch_views)) == 0 && break
                     MadIPM._update_active_mask!(bat)
                 end
                 MadIPM.factorize_system!(bat)

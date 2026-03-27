@@ -95,6 +95,37 @@ end
 # ============================================================
 
 @testset "Batch solver (CUDA)" begin
+    @testset "Batch views gather/scatter" begin
+        cpu_bnlp = BatchQuadraticModel([simple_lp() for _ in 1:4])
+        gpu_bnlp = convert(BatchQuadraticModel{Float64, CuMatrix{Float64}}, cpu_bnlp)
+        solver = MadIPM.UniformBatchMPCSolver(
+            gpu_bnlp;
+            print_level=MadNLP.ERROR,
+            uniformbatch_linear_solver=MadNLPGPU.CUDSSSolver,
+        )
+        root = MadIPM.root_view(solver.batch_views)
+        saved_root = MadIPM.select_local!(solver.batch_views, [2, 4])
+        child = MadIPM.active_view(solver.batch_views)
+        MadIPM.select_local!(solver.batch_views, [2])
+        grandchild = MadIPM.active_view(solver.batch_views)
+
+        src = cu(reshape(collect(1.0:12.0), 3, 4))
+        gathered = similar(src, 3, MadIPM.local_batch_size(child))
+        MadIPM.gather_batch_view_columns!(gathered, src, child)
+        @test Array(gathered) == Array(src[:, [2, 4]])
+
+        gathered_nested = similar(src, 3, MadIPM.local_batch_size(grandchild))
+        MadIPM.gather_batch_view_columns!(gathered_nested, src, grandchild)
+        @test Array(gathered_nested) == Array(src[:, [4]])
+
+        scattered = CUDA.fill(-1.0, 3, 4)
+        MadIPM.scatter_batch_view_columns!(scattered, gathered, child)
+        @test Array(scattered[:, 2]) == Array(src[:, 2])
+        @test Array(scattered[:, 4]) == Array(src[:, 4])
+        @test Array(scattered[:, 1]) == fill(-1.0, 3)
+        @test Array(scattered[:, 3]) == fill(-1.0, 3)
+        MadIPM.restore_state!(solver.batch_views, saved_root)
+    end
 
     # ----------------------------------------------------------
     # Identical instances (sanity check)
@@ -283,5 +314,4 @@ end
             @test Array(si.solution) ≈ ref.solution atol=1e-6
         end
     end
-
 end

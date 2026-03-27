@@ -231,6 +231,8 @@ function initialize!(batch_solver::AbstractBatchMPCSolver{T}) where T
     fill!(ws.mu_batch, opt.mu_init)
     fill!(ws.best_complementarity, typemax(T))
     fill!(ws.status, MadNLP.REGULAR)
+    reset_active_view!(batch_solver.batch_views)
+    _update_active_mask!(batch_solver)
     fill!(ws.inf_pr, zero(T))
     fill!(ws.inf_du, zero(T))
     fill!(ws.inf_compl, zero(T))
@@ -425,17 +427,42 @@ function mehrotra_correction_direction!(solver::AbstractBatchMPCSolver)
     return
 end
 
+function _restrict_to_failed_locals!(batch_solver::AbstractBatchMPCSolver, nfailed::Int)
+    select_local!(batch_solver.batch_views, batch_solver.batch_views.selected_local_buffer, nfailed)
+    return active_view(batch_solver.batch_views)
+end
+
+function _bump_failed_regularization!(batch_solver::AbstractBatchMPCSolver{T}, failed_view::BatchView) where T
+    ws = batch_solver.workspace
+    fill_batch_view_mask!(ws.active_mask_cpu, failed_view)
+    @. batch_solver.del_w = ifelse(ws.active_mask_cpu == one(T), T(100) * batch_solver.del_w, batch_solver.del_w)
+    @. batch_solver.del_c = ifelse(ws.active_mask_cpu == one(T), T(100) * batch_solver.del_c, batch_solver.del_c)
+    return
+end
+
 function factorize_system!(batch_solver::AbstractBatchMPCSolver)
     ws = batch_solver.workspace
+    batch_views = batch_solver.batch_views
     update_regularization!(batch_solver, batch_solver.opt.regularization)
     max_trials = 3
-    for _ in 1:max_trials
-        set_aug_diagonal_reg!(batch_solver.kkt, batch_solver)
-        MadNLP.factorize_wrapper!(batch_solver)
-        is_factorized(batch_solver.kkt.batch_solver) && break  # exit once all are factorized
-        # FIXME: mask based on is_factorized instead of termination only
-        batch_solver.del_w .*= 100.0 .* ws.active_mask
-        batch_solver.del_c .*= 100.0 .* ws.active_mask
+    saved_active = active_view(batch_views)
+    try
+        for _ in 1:max_trials
+            set_aug_diagonal_reg!(batch_solver.kkt, batch_solver)
+            MadNLP.factorize_wrapper!(batch_solver)
+            factor_view = active_view(batch_views)
+            nfailed = failed_factorization_local_count!(
+                batch_views.selected_local_buffer,
+                batch_solver.kkt.batch_solver,
+                factor_view,
+            )
+            nfailed == 0 && break
+
+            failed_view = _restrict_to_failed_locals!(batch_solver, nfailed)
+            _bump_failed_regularization!(batch_solver, failed_view)
+        end
+    finally
+        restore_state!(batch_views, saved_active)
     end
     return
 end
@@ -491,11 +518,8 @@ end
 
 function _update_active_mask!(batch_solver::AbstractBatchMPCSolver{T}) where T
     ws = batch_solver.workspace
-    bmap = batch_solver.kkt.batch_map
     buf = ws.active_mask_cpu
-    @inbounds for i in eachindex(bmap)
-        buf[i] = T(bmap[i] != 0)
-    end
+    fill_batch_view_mask!(buf, active_view(batch_solver.batch_views))
     copyto!(ws.active_mask, buf)
 end
 
@@ -505,8 +529,8 @@ function mpc!(batch_solver::AbstractBatchMPCSolver)
         update_termination_criteria!(batch_solver)
         changed = update_termination_status!(batch_solver)
         if changed
-            update_active_set!(batch_solver.kkt, batch_solver.workspace.status)
-            batch_solver.kkt.active_batch_size[] == 0 && return
+            update_active_set!(batch_solver)
+            active_batch_size(batch_solver) == 0 && return
             _update_active_mask!(batch_solver)
         end
         mpc_step!(batch_solver)
@@ -574,7 +598,7 @@ function MadNLP.print_iter(batch_solver::AbstractBatchMPCSolver)
     MadNLP.get_level(logger) > MadNLP.INFO && return
     ws = batch_solver.workspace
     bcnt = batch_solver.batch_cnt
-    na = batch_solver.kkt.active_batch_size[]
+    na = active_batch_size(batch_solver)
     bs = batch_solver.batch_size
     k = maximum(bcnt.k)
 

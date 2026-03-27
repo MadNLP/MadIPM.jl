@@ -202,13 +202,16 @@ end
 
 MadIPM.is_factorized(::MadNLPGPU.CUDSSSolver) = true
 
-function MadIPM._active_factorize!(s::MadNLPGPU.CUDSSSolver, na::Int)
+function MadIPM.factorize_active!(s::MadNLPGPU.CUDSSSolver, active::MadIPM.BatchView)
+    na = MadIPM.local_batch_size(active)
     CUDSS.cudss_set(s.inner, "ubatch_size", na)
     MadNLP.factorize!(s)
     return
 end
 
-function MadIPM._active_solve!(s::MadNLPGPU.CUDSSSolver{T}, rhs::CuMatrix{T}, na::Int, n::Int) where T
+function MadIPM.solve_active!(s::MadNLPGPU.CUDSSSolver{T}, rhs::CuMatrix{T}, active::MadIPM.BatchView) where T
+    na = MadIPM.local_batch_size(active)
+    n = size(rhs, 1)
     rhs_active = unsafe_wrap(CuArray{T, 2}, pointer(rhs), (n, na))
     CUDSS.cudss_update(s.b_gpu, rhs_active)
     CUDSS.cudss_update(s.x_gpu, rhs_active)

@@ -1,5 +1,72 @@
 using BatchQuadraticModels: ObjRHSBatchQuadraticModel, BatchQuadraticModel
 
+_test_local_to_root(view) = Int[view.local_to_root[i] for i in 1:view.n]
+
+struct RecordingBatchLinearSolver{T, MT} <: MadNLP.AbstractLinearSolver{T}
+    nzvals_mat::MT
+    call_counts::Vector{Int}
+    factorized::Vector{Bool}
+    fail_marker::T
+end
+
+@kwdef mutable struct RecordingBatchLinearSolverOptions <: MadNLP.AbstractOptions
+    fail_marker::Float64 = -999.0
+end
+
+MadNLP.default_options(::Type{RecordingBatchLinearSolver}) = RecordingBatchLinearSolverOptions()
+
+function RecordingBatchLinearSolver(
+    aug_com,
+    nzvals_mat::AbstractMatrix{T},
+    n::Int;
+    opt::RecordingBatchLinearSolverOptions = RecordingBatchLinearSolverOptions(),
+) where T
+    batch_size = size(nzvals_mat, 2)
+    return RecordingBatchLinearSolver(
+        nzvals_mat,
+        zeros(Int, batch_size),
+        fill(true, batch_size),
+        T(opt.fail_marker),
+    )
+end
+
+function MadIPM.factorize_active!(
+    s::RecordingBatchLinearSolver{T, MT},
+    factor_view::MadIPM.BatchView,
+) where {T, MT}
+    @inbounds for j in 1:MadIPM.local_batch_size(factor_view)
+        s.call_counts[j] += 1
+        col = view(s.nzvals_mat, :, j)
+        corrupted = any(==(s.fail_marker), col)
+        s.factorized[j] = !(corrupted && s.call_counts[j] == 1)
+    end
+    return
+end
+
+function MadIPM.failed_factorization_local_count!(
+    failed_local_buffer::Vector{Int32},
+    s::RecordingBatchLinearSolver,
+    factor_view::MadIPM.BatchView,
+)
+    nfailed = 0
+    @inbounds for j in 1:MadIPM.local_batch_size(factor_view)
+        if !s.factorized[j]
+            nfailed += 1
+            failed_local_buffer[nfailed] = j
+        end
+    end
+    return nfailed
+end
+
+MadIPM.is_factorized(s::RecordingBatchLinearSolver) = all(s.factorized)
+
+MadIPM.solve_active!(s::RecordingBatchLinearSolver, rhs::AbstractMatrix, active::MadIPM.BatchView) = rhs
+
+function _make_batch_solver(qps; batch_kwargs...)
+    bnlp = BatchQuadraticModel(qps)
+    return MadIPM.UniformBatchMPCSolver(bnlp; print_level=MadNLP.ERROR, batch_kwargs...)
+end
+
 function _make_small_qp()
     # Small QP: min 0.5 xᵀHx + cᵀx  s.t.  lcon ≤ Ax ≤ ucon, lvar ≤ x ≤ uvar
     n, m = 4, 2
@@ -114,6 +181,59 @@ function _test_fullbatch_different_data(; batch_kwargs...)
 end
 
 @testset "Batch solver (CPU)" begin
+    @testset "Batch views" begin
+        solver = _make_batch_solver([simple_lp() for _ in 1:4])
+        root = MadIPM.root_view(solver.batch_views)
+
+        @test MadIPM.local_batch_size(root) == 4
+        @test MadIPM.batch_size_root(root) == 4
+        @test MadIPM.is_identity_view(root)
+        @test _test_local_to_root(root) == [1, 2, 3, 4]
+
+        saved_root = MadIPM.select_local!(solver.batch_views, [2, 4])
+        child = MadIPM.active_view(solver.batch_views)
+        @test MadIPM.local_batch_size(child) == 2
+        @test _test_local_to_root(child) == [2, 4]
+        @test !MadIPM.is_identity_view(child)
+        mask = zeros(Float64, 1, 4)
+        MadIPM.fill_batch_view_mask!(mask, child)
+        @test mask == [0.0 1.0 0.0 1.0]
+
+        saved_child = MadIPM.select_local!(solver.batch_views, [2])
+        grandchild = MadIPM.active_view(solver.batch_views)
+        @test _test_local_to_root(grandchild) == [4]
+        MadIPM.restore_state!(solver.batch_views, saved_child)
+
+        MadIPM.select_local!(solver.batch_views, Int[])
+        empty_child = MadIPM.active_view(solver.batch_views)
+        @test MadIPM.local_batch_size(empty_child) == 0
+        MadIPM.restore_state!(solver.batch_views, saved_root)
+
+        MadIPM.select_local!(solver.batch_views, [1, 2, 3, 4])
+        full_child = MadIPM.active_view(solver.batch_views)
+        @test MadIPM.is_identity_view(full_child)
+        MadIPM.restore_state!(solver.batch_views, root)
+    end
+
+    @testset "Partial active KKT solve preserves rhs" begin
+        solver = _make_batch_solver([simple_lp() for _ in 1:3])
+        MadIPM.initialize!(solver)
+        status = fill(MadNLP.REGULAR, 3)
+        status[2] = MadNLP.INTERNAL_ERROR
+        solver.workspace.status .= status
+        MadIPM.update_active_set!(solver)
+
+        pd_view = MadNLP.primal_dual(solver.d)
+        pd_view .= reshape(collect(1.0:length(pd_view)), size(pd_view))
+        pd_before = copy(pd_view)
+
+        MadNLP.build_kkt!(solver.kkt)
+        MadNLP.factorize_kkt!(solver.kkt)
+        MadNLP.solve_kkt!(solver.kkt, solver)
+
+        @test pd_view[:, 2] == pd_before[:, 2]
+    end
+
     @testset "Batch LP" begin
         _test_batch_lp()
     end
@@ -163,5 +283,66 @@ end
         @test stats[1].status == MadNLP.SOLVE_SUCCEEDED
         @test stats[3].status == MadNLP.SOLVE_SUCCEEDED
         @test stats[2].status != MadNLP.SOLVE_SUCCEEDED
+    end
+
+    @testset "Factorization retry only refactorizes failed instance" begin
+        solver = _make_batch_solver(
+            [simple_lp() for _ in 1:3];
+            uniformbatch_linear_solver=RecordingBatchLinearSolver,
+            regularization=MadIPM.FixedRegularization(1.0, -1.0),
+        )
+        MadIPM.initialize!(solver)
+        fill!(solver.kkt.batch_solver.call_counts, 0)
+        fill!(solver.kkt.batch_solver.factorized, true)
+
+        corrupt_k = solver.kkt.n_tot + solver.kkt.nnzh + 1
+        solver.kkt.nzVals[corrupt_k, 2] = -999.0
+        solver.kkt.nzVals[corrupt_k, 3] = -999.0
+        # two corruptions -- should see an extra solve in slots 1 and 2
+        # and bumped regularizations in instances 2 and 3
+
+        MadIPM.factorize_system!(solver)
+
+        ls = solver.kkt.batch_solver
+        @test ls.call_counts == [2, 2, 1]
+        @test solver.del_w == [1.0 100.0 100.0]
+        @test solver.del_c == [-1.0 -100.0 -100.0]
+    end
+
+    @testset "Factorization retry with one inactive instance" begin
+        solver = _make_batch_solver(
+            [simple_lp() for _ in 1:3];
+            uniformbatch_linear_solver=RecordingBatchLinearSolver,
+            regularization=MadIPM.FixedRegularization(1.0, -1.0),
+        )
+        MadIPM.initialize!(solver)
+        fill!(solver.kkt.batch_solver.call_counts, 0)
+        fill!(solver.kkt.batch_solver.factorized, true)
+        # reset all call counts to zero
+
+        # terminate an instance, so the last slot should be never used
+        status = fill(MadNLP.REGULAR, 3)
+        status[2] = MadNLP.SOLVE_SUCCEEDED
+        solver.workspace.status .= status
+        MadIPM.update_active_set!(solver)
+        MadIPM._update_active_mask!(solver)
+
+        # corrupt instance 3, which is currently at position 2
+        corrupt_k = solver.kkt.n_tot + solver.kkt.nnzh + 1
+        solver.kkt.nzVals[corrupt_k, 3] = -999.0
+
+        MadIPM.factorize_system!(solver)
+        # since instance 3 required regularization bump,
+        # we expect to do another compaction to move 3 into position 1
+        
+        # two solves in position 1 -- first instance 1, then instance 3's retry
+        # one solve in position 2 -- instance 3's first try
+        ls = solver.kkt.batch_solver
+        @test ls.call_counts == [2, 1, 0]
+
+        # instance 1 and 2's regularization is untouched,
+        # instance 3's regularization should be bumped
+        @test solver.del_w == [1.0 1.0 100.0]
+        @test solver.del_c == [-1.0 -1.0 -100.0]
     end
 end

@@ -1,11 +1,12 @@
 """Batched version of SparseKKTSystem"""
-struct SparseUniformBatchKKTSystem{T, LS, MT, VI, VI32, OPT} <: AbstractBatchKKTSystem{T}
+struct SparseUniformBatchKKTSystem{T, LS, MT, VI, VI32, OPT, BVS} <: AbstractBatchKKTSystem{T}
     nzVals::MT              # (aug_mat_length × batch_size) COO nonzero values
     aug_I::VI32             # shared row indices
     aug_J::VI32             # shared column indices
     batch_solver::LS        # batched linear solver
     rhs_buffer::MT          # (n+m) × batch_size for batch solve
     batch_size::Int
+    batch_views::BVS
     aug_com_nzvals::MT      # (nnz_csc × batch_size) CSC nonzero values
     batch_csc_map::VI       # flattened COO→CSC map for all instances
     n_tot::Int              # n + n_slack (total primal variables)
@@ -21,10 +22,6 @@ struct SparseUniformBatchKKTSystem{T, LS, MT, VI, VI32, OPT} <: AbstractBatchKKT
     hess_op::OPT
     jt_op::OPT
     j_op::OPT
-    # Batch tracking
-    batch_map::Vector{Int}              # original index → active position (0 if inactive)
-    batch_map_rev::Vector{Int}          # active position → original index
-    active_batch_size::Base.RefValue{Int}
 end
 
 pr_diag(bkkt::SparseUniformBatchKKTSystem) = view(bkkt.nzVals, 1:bkkt.n_tot, :)
@@ -38,6 +35,7 @@ function MadNLP.create_kkt_system(
     bcb::UniformBatchCallback{T, VT, MT, VI},
     uniformbatch_linear_solver = LoopedBatchLinearSolver;
     opt_linear_solver = MadNLP.default_options(uniformbatch_linear_solver),
+    batch_views,
 ) where {T, VT, MT, VI}
     batch_size = bcb.batch_size
 
@@ -113,69 +111,32 @@ function MadNLP.create_kkt_system(
     l_lower = similar(nzVals, nlb, batch_size)
     u_lower = similar(nzVals, nub, batch_size)
 
-    batch_map = collect(1:batch_size)
-    batch_map_rev = collect(1:batch_size)
-    active_batch_size = Ref(batch_size)
-
     LS = typeof(batch_ls)
     VI32 = typeof(I)
     OPT = typeof(jt_op)
-    return SparseUniformBatchKKTSystem{T, LS, MT, VI, VI32, OPT}(
-        nzVals, I, J, batch_ls, rhs_buffer, batch_size,
+    return SparseUniformBatchKKTSystem{T, LS, MT, VI, VI32, OPT, typeof(batch_views)}(
+        nzVals, I, J, batch_ls, rhs_buffer, batch_size, batch_views,
         aug_com_nzvals, batch_csc_map, n_tot, m, n_hess,
         reg, l_diag, u_diag, l_lower, u_lower,
         hess_op, jt_op, j_op,
-        batch_map, batch_map_rev, active_batch_size,
     )
 end
 
-function update_active_set!(bkkt::SparseUniformBatchKKTSystem, status::Vector{MadNLP.Status})
-    active_pos = 0
-    for i in 1:bkkt.batch_size
-        if status[i] == MadNLP.REGULAR
-            active_pos += 1
-            bkkt.batch_map[i] = active_pos
-            bkkt.batch_map_rev[active_pos] = i
-        else
-            bkkt.batch_map[i] = 0
-        end
-    end
-    for j in (active_pos + 1):bkkt.batch_size
-        bkkt.batch_map_rev[j] = 0
-    end
-    bkkt.active_batch_size[] = active_pos
-end
-
 function MadNLP.factorize_kkt!(bkkt::SparseUniformBatchKKTSystem)
-    na = bkkt.active_batch_size[]
-    nzvals = bkkt.aug_com_nzvals
-    @inbounds for j in 1:na  # FIXME: refactor to avoid `na` launches
-        i = bkkt.batch_map_rev[j]
-        i != j && (view(nzvals, :, j) .= view(nzvals, :, i))
+    factor_view = active_view(bkkt.batch_views)
+    if !is_identity_view(factor_view)
+        compact_active_columns_inplace!(bkkt.aug_com_nzvals, factor_view)
     end
-    _active_factorize!(bkkt.batch_solver, na)
+    factorize_active!(bkkt.batch_solver, factor_view)
     return
 end
 
 function MadNLP.solve_linear_system!(bkkt::SparseUniformBatchKKTSystem{T}, rhs::AbstractMatrix) where T
-    na = bkkt.active_batch_size[]
-    bs = bkkt.batch_size
-    n = size(rhs, 1)
-
-    @inbounds for j in 1:na
-        i = bkkt.batch_map_rev[j]
-        i != j && (view(rhs, :, j) .= view(rhs, :, i))
+    active = active_view(bkkt.batch_views)
+    if !is_identity_view(active)
+        compact_active_columns_inplace!(rhs, active)
     end
-    _active_solve!(bkkt.batch_solver, rhs, na, n)
-
-    @inbounds for j in na:-1:1
-        i = bkkt.batch_map_rev[j]
-        i != j && (view(rhs, :, i) .= view(rhs, :, j))
-    end
-
-    @inbounds for i in 1:bs
-        bkkt.batch_map[i] == 0 && (view(rhs, :, i) .= zero(T))
-    end
+    solve_active!(bkkt.batch_solver, rhs, active)
     return rhs
 end
 
@@ -222,9 +183,14 @@ function MadNLP.solve_kkt!(bkkt::SparseUniformBatchKKTSystem, batch_solver::Abst
 
     rhs = bkkt.rhs_buffer
     pd_view = MadNLP.primal_dual(d)
+    active = active_view(bkkt.batch_views)
     copyto!(rhs, pd_view)
     MadNLP.solve_linear_system!(bkkt, rhs)
-    copyto!(pd_view, rhs)
+    if is_identity_view(active)
+        copyto!(pd_view, rhs)
+    else
+        scatter_batch_view_columns!(pd_view, rhs, active)
+    end
 
     MadNLP.finish_aug_solve!(bkkt, batch_solver)
     return

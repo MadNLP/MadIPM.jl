@@ -34,17 +34,36 @@ function is_factorized(batch_linear_solver::LoopedBatchLinearSolver)
     return all(is_factorized(s) for s in batch_linear_solver.solvers)
 end
 
-function _active_factorize!(s::LoopedBatchLinearSolver, na::Int)
-    for j in 1:na
+function failed_factorization_local_count!(
+    failed_local_buffer::Vector{Int32},
+    batch_linear_solver::LoopedBatchLinearSolver,
+    factor_view::BatchView,
+)
+    nfailed = 0
+    @inbounds for j in 1:factor_view.n
+        if !is_factorized(batch_linear_solver.solvers[j])
+            nfailed += 1
+            failed_local_buffer[nfailed] = j
+        end
+    end
+    return nfailed
+end
+
+function factorize_active!(s::LoopedBatchLinearSolver, factor_view::BatchView)
+    @inbounds for j in 1:factor_view.n
         MadNLP.factorize!(s.solvers[j])
     end
     return
 end
 
-function _active_solve!(s::LoopedBatchLinearSolver{T, VT}, rhs::AbstractMatrix{T}, na::Int, n::Int) where {T, VT}
-    for j in 1:na
-        rhs_j = _madnlp_unsafe_column_wrap(rhs, n, (j-1)*n + 1, VT)
+function solve_active!(s::LoopedBatchLinearSolver{T, VT}, rhs::AbstractMatrix{T}, active::BatchView) where {T, VT}
+    na = local_batch_size(active)
+    na == 0 && return
+    n = size(rhs, 1)
+    @inbounds for j in 1:na
+        rhs_j = _madnlp_unsafe_column_wrap(rhs, n, (j - 1) * n + 1, VT)
         MadNLP.solve_linear_system!(s.solvers[j], rhs_j)
     end
     return
 end
+failed_factorization_local_count!(::Vector{Int32}, ::MadNLP.AbstractLinearSolver, ::BatchView) = 0

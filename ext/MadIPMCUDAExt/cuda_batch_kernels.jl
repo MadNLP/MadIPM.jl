@@ -16,6 +16,24 @@
     end
 end
 
+@kernel function _gather_batch_view_columns_kernel!(dst, @Const(src), @Const(local_to_root))
+    i, j = @index(Global, NTuple)
+    @inbounds dst[i, j] = src[i, local_to_root[j]]
+end
+
+@kernel function _scatter_batch_view_columns_kernel!(dst, @Const(src), @Const(local_to_root))
+    i, j = @index(Global, NTuple)
+    @inbounds dst[i, local_to_root[j]] = src[i, j]
+end
+
+@kernel function _compact_active_columns_inplace_kernel!(dst, @Const(local_to_root))
+    i, j = @index(Global, NTuple)
+    src_j = local_to_root[j]
+    @inbounds if src_j != j
+        dst[i, j] = dst[i, src_j]
+    end
+end
+
 @inline function _atomic_colreduce!(::typeof(+), out, j, value)
     Atomix.@atomic out[1, j] += value
     return
@@ -31,6 +49,38 @@ end
         end
     end
     return
+end
+
+function MadIPM.gather_batch_view_columns!(
+    dst::CuMatrix{TD},
+    src::CuMatrix{TS},
+    batch_view::MadIPM.BatchView,
+) where {TD, TS}
+    na = MadIPM.local_batch_size(batch_view)
+    backend = CUDABackend()
+    _gather_batch_view_columns_kernel!(backend)(dst, src, MadIPM.local_to_root_dev(batch_view); ndrange=(size(dst, 1), na))
+    return dst
+end
+
+function MadIPM.scatter_batch_view_columns!(
+    dst::CuMatrix{TD},
+    src::CuMatrix{TS},
+    batch_view::MadIPM.BatchView,
+) where {TD, TS}
+    na = MadIPM.local_batch_size(batch_view)
+    backend = CUDABackend()
+    _scatter_batch_view_columns_kernel!(backend)(dst, src, MadIPM.local_to_root_dev(batch_view); ndrange=(size(src, 1), na))
+    return dst
+end
+
+function MadIPM.compact_active_columns_inplace!(
+    dst::CuMatrix{T},
+    batch_view::MadIPM.BatchView,
+) where T
+    na = MadIPM.local_batch_size(batch_view)
+    backend = CUDABackend()
+    _compact_active_columns_inplace_kernel!(backend)(dst, MadIPM.local_to_root_dev(batch_view); ndrange=(size(dst, 1), na))
+    return dst
 end
 
 function MadNLP._set_con_scale_sparse!(

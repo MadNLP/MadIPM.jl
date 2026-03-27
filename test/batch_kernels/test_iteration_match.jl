@@ -99,24 +99,22 @@
             seq1_done = seq1_done || MadIPM.is_done(seq1)
             seq2_done = seq2_done || MadIPM.is_done(seq2)
 
-            MadIPM.update_active_set!(bat.kkt, ws.status)
-            bat.kkt.active_batch_size[] == 0 && break
+            MadIPM.update_active_set!(bat)
+            active = MadIPM.active_view(bat.batch_views)
+            MadIPM.local_batch_size(active) == 0 && break
             MadIPM._update_active_mask!(bat)
 
             # Verify active mask matches expected state
             if seq1_done && !seq2_done
-                @test bat.kkt.batch_map[1] == 0   # instance 1 inactive
-                @test bat.kkt.batch_map[2] != 0   # instance 2 still active
+                @test Int[active.local_to_root[i] for i in 1:active.n] == [2]
                 @test ws.active_mask[1] == 0.0
                 @test ws.active_mask[2] == 1.0
             elseif !seq1_done && seq2_done
-                @test bat.kkt.batch_map[1] != 0
-                @test bat.kkt.batch_map[2] == 0
+                @test Int[active.local_to_root[i] for i in 1:active.n] == [1]
                 @test ws.active_mask[1] == 1.0
                 @test ws.active_mask[2] == 0.0
             elseif !seq1_done && !seq2_done
-                @test bat.kkt.batch_map[1] != 0
-                @test bat.kkt.batch_map[2] != 0
+                @test Int[active.local_to_root[i] for i in 1:active.n] == [1, 2]
             end
 
             (seq1_done && seq2_done) && break

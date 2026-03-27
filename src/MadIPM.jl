@@ -24,6 +24,7 @@ include("linear_solver.jl")
 include("solver.jl")
 
 include("batch/utils.jl")
+include("batch/views.jl")
 include("batch/madnlp/rhs.jl")
 include("batch/madnlp/callback.jl")
 include("batch/KKT/KKT.jl")

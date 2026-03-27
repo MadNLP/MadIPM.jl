@@ -78,7 +78,7 @@ function UniformBatchWorkspace(::Type{MT}, ::Type{VT}, n::Int, m::Int, nlb::Int,
     )
 end
 
-mutable struct UniformBatchMPCSolver{T, MT, VT, VI, BM, BCB} <: AbstractBatchMPCSolver{T, MT, VT}
+mutable struct UniformBatchMPCSolver{T, MT, VT, VI, BM, BCB, BVS} <: AbstractBatchMPCSolver{T, MT, VT}
     batch_size::Int
 
     d::BatchUnreducedKKTVector{T, MT}
@@ -104,6 +104,7 @@ mutable struct UniformBatchMPCSolver{T, MT, VT, VI, BM, BCB} <: AbstractBatchMPC
     opt::IPMOptions
     batch_cnt::BatchCounters
     logger::MadNLP.MadNLPLogger
+    batch_views::BVS
     kkt::AbstractBatchKKTSystem{T}
 
     del_w::MT
@@ -117,6 +118,24 @@ _get_ind_lb(bs::AbstractBatchMPCSolver) = bs.bcb.ind_lb
 _get_ind_ub(bs::AbstractBatchMPCSolver) = bs.bcb.ind_ub
 _get_ind_llb(bs::AbstractBatchMPCSolver) = bs.bcb.ind_llb
 _get_ind_uub(bs::AbstractBatchMPCSolver) = bs.bcb.ind_uub
+active_batch_size(bs::AbstractBatchMPCSolver) = local_batch_size(active_view(bs.batch_views))
+
+function update_active_set!(state::BatchViewState, status::Vector{MadNLP.Status})
+    nselected = 0
+    @inbounds for i in eachindex(status)
+        if status[i] == MadNLP.REGULAR
+            nselected += 1
+            state.selected_local_buffer[nselected] = i
+        end
+    end
+    if nselected == batch_size_root(root_view(state))
+        return reset_active_view!(state)
+    end
+    reset_active_view!(state)
+    return select_local!(state, state.selected_local_buffer, nselected; reset_slots=true)
+end
+
+update_active_set!(bs::AbstractBatchMPCSolver) = update_active_set!(bs.batch_views, bs.workspace.status)
 
 
 """
@@ -163,11 +182,14 @@ function UniformBatchMPCSolver(
     nlb = length(ind_lb)
     nub = length(ind_ub)
 
+    batch_views = BatchViewState(bcb, batch_size)
+
     batch_kkts = MadNLP.create_kkt_system(
         ipm_opt.kkt_system,
         bcb,
         uniformbatch_linear_solver;
         opt_linear_solver = opt_batch_ls,
+        batch_views = batch_views,
     )
 
     batch_x  = BatchPrimalVector(MT, VT, nx, ns, batch_size, ind_lb, ind_ub)
@@ -194,7 +216,7 @@ function UniformBatchMPCSolver(
     batch_del_w = fill!(MT(undef, 1, batch_size), zero(T))
     batch_del_c = fill!(MT(undef, 1, batch_size), zero(T))
 
-    return UniformBatchMPCSolver{T, MT, VT, VI, typeof(bnlp), typeof(bcb)}(
+    return UniformBatchMPCSolver{T, MT, VT, VI, typeof(bnlp), typeof(bcb), typeof(batch_views)}(
         batch_size,
         batch_d, batch_p, batch_w1,
         batch_x, batch_xl, batch_xu, batch_zl, batch_zu, batch_f,
@@ -202,6 +224,7 @@ function UniformBatchMPCSolver(
         batch_correction_lb, batch_correction_ub,
         workspace,
         ipm_opt, batch_cnt, logger,
+        batch_views,
         batch_kkts,
         batch_del_w, batch_del_c,
         bnlp,
