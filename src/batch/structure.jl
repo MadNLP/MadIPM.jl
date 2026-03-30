@@ -64,8 +64,8 @@ function UniformBatchWorkspace(::Type{MT}, ::Type{VT}, n::Int, m::Int, nlb::Int,
         fill(MadNLP.INITIAL, batch_size),  # status
         similar(_proto, Int64, 1, batch_size),    # _term_gpu
         zeros(Int64, 1, batch_size),  # _term_cpu
-        fill!(similar(_proto, Int64, 1, 1), Int64(Int(MadNLP.REGULAR))),  # _any_nonregular_gpu
-        zeros(Int64, 1, 1),        # _any_nonregular_cpu
+        fill!(similar(_proto, Int64, 1, 1), Int64(MadNLP.REGULAR)),  # _any_nonregular_gpu
+        fill!(zeros(Int64, 1, 1), Int64(MadNLP.REGULAR)),  # _any_nonregular_cpu
         MT(undef, 1, batch_size),  # _norm_gpu_w
         MT(undef, 1, batch_size),  # _norm_gpu_p
         fill!(similar(_proto, Int32), zero(Int32)),  # _ls_error
@@ -144,14 +144,13 @@ update_active_set!(bs::AbstractBatchMPCSolver) = update_active_set!(bs.batch_vie
 Construct a batch solver from a `AbstractBatchNLPModel`.
 """
 function UniformBatchMPCSolver(
-    bnlp::NLPModels.AbstractBatchNLPModel{T};
-    MT = typeof(similar(NLPModels.get_x0(bnlp), T, 0, 0)),
+    bnlp::NLPModels.AbstractBatchNLPModel{T, MT};
     VT = typeof(similar(NLPModels.get_x0(bnlp), T, 0)),
     VI = typeof(similar(NLPModels.get_x0(bnlp), Int, 0)),
     uniformbatch_linear_solver = LoopedBatchLinearSolver,
     check_batch_structure::Bool = true,
     kwargs...,
-) where {T}
+) where {T, MT}
     bmeta = bnlp.meta
     batch_size = bmeta.nbatch
     @assert batch_size > 0 "Need at least one instance in batch"
