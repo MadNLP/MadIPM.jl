@@ -403,11 +403,9 @@ end
     corrected_p = one(T)
     @inbounds if max_ap < one(T)
         if best_xl <= best_xu && i_xl > 0
-            idx = ind_lb[i_xl]
             zl_stepped = zl_r[i_xl, j] + max_ad * d_vals[dlb_off + i_xl, j]
             corrected_p = (x_lr[i_xl, j] - xl_r[i_xl, j] - mu_j / zl_stepped) / (-dx_lr[i_xl, j])
         elseif i_xu > 0
-            idx = ind_ub[i_xu]
             zu_stepped = zu_r[i_xu, j] + max_ad * d_vals[dub_off + i_xu, j]
             corrected_p = (xu_r[i_xu, j] - x_ur[i_xu, j] - mu_j / zu_stepped) / dx_ur[i_xu, j]
         end
@@ -418,11 +416,9 @@ end
     corrected_d = one(T)
     @inbounds if max_ad < one(T)
         if best_zl <= best_zu && i_zl > 0
-            idx = ind_lb[i_zl]
             x_gap = x_lr[i_zl, j] + max_ap * dx_lr[i_zl, j] - xl_r[i_zl, j]
             corrected_d = -(zl_r[i_zl, j] - mu_j / x_gap) / d_vals[dlb_off + i_zl, j]
         elseif i_zu > 0
-            idx = ind_ub[i_zu]
             x_gap = xu_r[i_zu, j] - x_ur[i_zu, j] - max_ap * dx_ur[i_zu, j]
             corrected_d = -(zu_r[i_zu, j] - mu_j / x_gap) / d_vals[dub_off + i_zu, j]
         end

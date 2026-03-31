@@ -39,6 +39,7 @@ end
 function MadNLP.unpack_z!(
     Z_full::AbstractMatrix, bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}, z_free,
 ) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
+    fill!(Z_full, zero(T))
     Z_full[bcb.fixed_handler.free, :] .= z_free ./ bcb.obj_scale
 end
 

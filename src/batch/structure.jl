@@ -116,8 +116,6 @@ end
 
 _get_ind_lb(bs::AbstractBatchMPCSolver) = bs.bcb.ind_lb
 _get_ind_ub(bs::AbstractBatchMPCSolver) = bs.bcb.ind_ub
-_get_ind_llb(bs::AbstractBatchMPCSolver) = bs.bcb.ind_llb
-_get_ind_uub(bs::AbstractBatchMPCSolver) = bs.bcb.ind_uub
 active_batch_size(bs::AbstractBatchMPCSolver) = local_batch_size(active_view(bs.batch_views))
 
 function update_active_set!(state::BatchViewState, status::Vector{MadNLP.Status})
