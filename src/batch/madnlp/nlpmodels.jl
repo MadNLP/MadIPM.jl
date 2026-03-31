@@ -128,10 +128,11 @@ function MadNLP._eval_lag_hess_wrapper!(
     bx::AbstractMatrix,
     y_mat::AbstractMatrix,
     bv::AbstractMatrix,
-    hess::AbstractMatrix,
+    hess::AbstractMatrix;
+    obj_weight::AbstractVector = vec(bcb.obj_scale),
 ) where {T,VT,MT,VI,BM,FH,EH}
     bv .= y_mat .* bcb.con_scale
-    NLPModels.hess_coord!(bcb.nlp, bx, bv, vec(bcb.obj_scale), hess)
+    NLPModels.hess_coord!(bcb.nlp, bx, bv, obj_weight, hess)
     return
 end
 
@@ -140,10 +141,11 @@ function MadNLP._eval_lag_hess_wrapper!(
     bx::AbstractMatrix,
     y_mat::AbstractMatrix,
     bv::AbstractMatrix,
-    hess::AbstractMatrix,
+    hess::AbstractMatrix;
+    obj_weight::AbstractVector = vec(bcb.obj_scale),
 ) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
     bv .= y_mat .* bcb.con_scale
-    NLPModels.hess_coord!(bcb.nlp, bx, bv, vec(bcb.obj_scale), bcb.hess_buffer)
+    NLPModels.hess_coord!(bcb.nlp, bx, bv, obj_weight, bcb.hess_buffer)
     hess .= view(bcb.hess_buffer, bcb.fixed_handler.ind_hess_free, :)
     return
 end

@@ -389,6 +389,7 @@ function MadIPM._mehrotra_step!(
     dx_ur, x_ur, xu_r, nub, dzub, zu_r,
     d_vals, ind_lb, ind_ub, dlb_off, dub_off,
 )
+    bs = size(alpha_p, 2)
     CUDA.@cuda threads=32 blocks=bs _mehrotra_step_kernel!(
         alpha_p, alpha_d, mu, gamma_f,
         dx_lr, x_lr, xl_r, Int32(nlb), dzlb, zl_r,
