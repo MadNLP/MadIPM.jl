@@ -329,7 +329,7 @@ end
         MadIPM.factorize_system!(solver)
 
         ls = solver.kkt.batch_solver
-        @test ls.call_counts == [2, 2, 1]
+        @test ls.call_counts == [2, 2, 2]
         @test solver.del_w == [1.0 100.0 100.0]
         @test solver.del_c == [-1.0 -100.0 -100.0]
     end
@@ -343,7 +343,6 @@ end
         MadIPM.initialize!(solver)
         fill!(solver.kkt.batch_solver.call_counts, 0)
         fill!(solver.kkt.batch_solver.factorized, true)
-        # reset all call counts to zero
 
         # terminate an instance, so the last slot should be never used
         status = fill(MadNLP.REGULAR, 3)
@@ -352,18 +351,13 @@ end
         MadIPM.update_active_set!(solver)
         MadIPM._update_active_mask!(solver)
 
-        # corrupt instance 3, which is currently at position 2
+        # corrupt instance 3, which is at position 2 after compacting [1,3]
         corrupt_k = solver.kkt.n_tot + solver.kkt.nnzh + 1
         solver.kkt.nzVals[corrupt_k, 3] = -999.0
 
         MadIPM.factorize_system!(solver)
-        # since instance 3 required regularization bump,
-        # we expect to do another compaction to move 3 into position 1
-        
-        # two solves in position 1 -- first instance 1, then instance 3's retry
-        # one solve in position 2 -- instance 3's first try
         ls = solver.kkt.batch_solver
-        @test ls.call_counts == [2, 1, 0]
+        @test ls.call_counts == [2, 2, 0]
 
         # instance 1 and 2's regularization is untouched,
         # instance 3's regularization should be bumped

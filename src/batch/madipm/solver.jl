@@ -432,16 +432,22 @@ function mehrotra_correction_direction!(solver::AbstractBatchMPCSolver)
     return
 end
 
-function _restrict_to_failed_locals!(batch_solver::AbstractBatchMPCSolver, nfailed::Int)
-    select_local!(batch_solver.batch_views, batch_solver.batch_views.selected_local_buffer, nfailed)
-    return active_view(batch_solver.batch_views)
-end
-
-function _bump_failed_regularization!(batch_solver::AbstractBatchMPCSolver{T}, failed_view::BatchView) where T
+function _bump_failed_regularization!(batch_solver::AbstractBatchMPCSolver{T}, failed_locals, nfailed::Int) where T
+    factor_view = active_view(batch_solver.batch_views)
     ws = batch_solver.workspace
-    fill_batch_view_mask!(ws.active_mask_cpu, failed_view)
-    @. batch_solver.del_w = ifelse(ws.active_mask_cpu == one(T), T(100) * batch_solver.del_w, batch_solver.del_w)
-    @. batch_solver.del_c = ifelse(ws.active_mask_cpu == one(T), T(100) * batch_solver.del_c, batch_solver.del_c)
+    # build root-level mask from local failed idx
+    fill!(ws.active_mask_cpu, zero(T))
+    @inbounds for k in 1:nfailed
+        j = factor_view.local_to_root[failed_locals[k]]
+        ws.active_mask_cpu[1, j] = one(T)
+    end
+    copyto!(ws.active_mask, ws.active_mask_cpu)
+    mask = ws.active_mask
+    @. batch_solver.del_w = ifelse(mask == one(T), T(100) * batch_solver.del_w, batch_solver.del_w)
+    @. batch_solver.del_c = ifelse(mask == one(T), T(100) * batch_solver.del_c, batch_solver.del_c)
+    # restore active mask
+    # this is required to not throw away any successful factorization that we need later
+    _update_active_mask!(batch_solver)
     return
 end
 
@@ -450,24 +456,17 @@ function factorize_system!(batch_solver::AbstractBatchMPCSolver)
     batch_views = batch_solver.batch_views
     update_regularization!(batch_solver, batch_solver.opt.regularization)
     max_trials = 3
-    saved_active = active_view(batch_views)
-    try
-        for _ in 1:max_trials
-            set_aug_diagonal_reg!(batch_solver.kkt, batch_solver)
-            MadNLP.factorize_wrapper!(batch_solver)
-            factor_view = active_view(batch_views)
-            nfailed = failed_factorization_local_count!(
-                batch_views.selected_local_buffer,
-                batch_solver.kkt.batch_solver,
-                factor_view,
-            )
-            nfailed == 0 && break
+    factor_view = active_view(batch_views)
+    failed_locals = batch_views.selected_local_buffer
 
-            failed_view = _restrict_to_failed_locals!(batch_solver, nfailed)
-            _bump_failed_regularization!(batch_solver, failed_view)
-        end
-    finally
-        restore_state!(batch_views, saved_active)
+    for _ in 1:max_trials
+        set_aug_diagonal_reg!(batch_solver.kkt, batch_solver)
+        MadNLP.factorize_wrapper!(batch_solver)
+        nfailed = failed_factorization_local_count!(
+            failed_locals, batch_solver.kkt.batch_solver, factor_view,
+        )
+        nfailed == 0 && break
+        _bump_failed_regularization!(batch_solver, failed_locals, nfailed)
     end
     return
 end
