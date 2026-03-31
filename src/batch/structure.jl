@@ -65,7 +65,7 @@ function UniformBatchWorkspace(::Type{MT}, ::Type{VT}, n::Int, m::Int, nlb::Int,
         similar(_proto, Int64, 1, batch_size),    # _term_gpu
         zeros(Int64, 1, batch_size),  # _term_cpu
         fill!(similar(_proto, Int64, 1, 1), Int64(MadNLP.REGULAR)),  # _any_nonregular_gpu
-        fill!(zeros(Int64, 1, 1), Int64(MadNLP.REGULAR)),  # _any_nonregular_cpu
+        fill(Int64(MadNLP.REGULAR), 1, 1),  # _any_nonregular_cpu
         MT(undef, 1, batch_size),  # _norm_gpu_w
         MT(undef, 1, batch_size),  # _norm_gpu_p
         fill!(similar(_proto, Int32), zero(Int32)),  # _ls_error
@@ -78,7 +78,7 @@ function UniformBatchWorkspace(::Type{MT}, ::Type{VT}, n::Int, m::Int, nlb::Int,
     )
 end
 
-mutable struct UniformBatchMPCSolver{T, MT, VT, VI, BM, BCB, BVS} <: AbstractBatchMPCSolver{T, MT, VT}
+mutable struct UniformBatchMPCSolver{T, MT, VT, VI, BM, BCB, BVS, KKT<:AbstractBatchKKTSystem{T}} <: AbstractBatchMPCSolver{T, MT, VT}
     batch_size::Int
 
     d::BatchUnreducedKKTVector{T, MT}
@@ -105,7 +105,7 @@ mutable struct UniformBatchMPCSolver{T, MT, VT, VI, BM, BCB, BVS} <: AbstractBat
     batch_cnt::BatchCounters
     logger::MadNLP.MadNLPLogger
     batch_views::BVS
-    kkt::AbstractBatchKKTSystem{T}
+    kkt::KKT
 
     del_w::MT
     del_c::MT
@@ -217,7 +217,7 @@ function UniformBatchMPCSolver(
     batch_del_w = fill!(MT(undef, 1, batch_size), zero(T))
     batch_del_c = fill!(MT(undef, 1, batch_size), zero(T))
 
-    return UniformBatchMPCSolver{T, MT, VT, VI, typeof(bnlp), typeof(bcb), typeof(batch_views)}(
+    return UniformBatchMPCSolver{T, MT, VT, VI, typeof(bnlp), typeof(bcb), typeof(batch_views), typeof(batch_kkts)}(
         batch_size,
         batch_d, batch_p, batch_w1,
         batch_x, batch_xl, batch_xu, batch_zl, batch_zu, batch_f,

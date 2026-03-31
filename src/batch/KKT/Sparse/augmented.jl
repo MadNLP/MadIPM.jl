@@ -253,8 +253,9 @@ function MadNLP.eval_lag_hess_wrapper!(
     if nnzh > 0
         hess = view(nzVals, n_tot+1:n_tot+nnzh, :)
         MadNLP.unpack_x!(ws.bx, bcb, batch_solver.x)
-        scale = vec(bcb.obj_sign .* bcb.obj_scale)
-        MadNLP._eval_lag_hess_wrapper!(bcb, ws.bx, MadNLP.full(batch_solver.y), ws.bv, hess; obj_weight=scale)
+        bf_mat = reshape(ws.bf, 1, batch_solver.batch_size)
+        @. bf_mat = bcb.obj_sign * bcb.obj_scale
+        MadNLP._eval_lag_hess_wrapper!(bcb, ws.bx, MadNLP.full(batch_solver.y), ws.bv, hess; obj_weight=ws.bf)
     end
     return
 end

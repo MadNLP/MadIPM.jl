@@ -399,7 +399,7 @@ function update_solution!(stats::BatchExecutionStats, batch_solver::AbstractBatc
     MadNLP.unpack_y!(stats.multipliers, bcb, MadNLP.full(batch_solver.y))
     MadNLP.unpack_z!(stats.multipliers_L, bcb, MadNLP.variable(zl))
     MadNLP.unpack_z!(stats.multipliers_U, bcb, MadNLP.variable(zu))
-    stats.objective .= MadNLP.unpack_obj(bcb, ws.obj_val)
+    unpack_obj!(stats.objective, bcb, ws.obj_val)
     MadNLP.unpack_cons!(stats.constraints, bcb, MadNLP.full(batch_solver.c), MadNLP.full(batch_solver.rhs), bcb.ind_ineq, MadNLP.slack(x))
 
     stats.dual_feas .= vec(ws.inf_du)

@@ -62,10 +62,13 @@ MadNLP.get_lcon(bcb::UniformBatchCallback) = bcb.nlp.meta.lcon
 MadNLP.get_ucon(bcb::UniformBatchCallback) = bcb.nlp.meta.ucon
 
 function MadNLP.unpack_y!(y_full, bcb::UniformBatchCallback, y)
-    y_full .= y .* bcb.con_scale .* (bcb.obj_sign ./ bcb.obj_scale)
+    @. y_full = y * bcb.con_scale * bcb.obj_sign / bcb.obj_scale
 end
 
-MadNLP.unpack_obj(bcb::UniformBatchCallback, obj_val) = vec(bcb.obj_sign .* obj_val ./ bcb.obj_scale)
+function unpack_obj!(dst, bcb::UniformBatchCallback, obj_val)
+    dst_mat = reshape(dst, 1, length(dst))
+    @. dst_mat = bcb.obj_sign * obj_val / bcb.obj_scale
+end
 
 function MadNLP.unpack_cons!(c_full, bcb::UniformBatchCallback, c, rhs, ind_ineq, slack)
     c_full .= c ./ bcb.con_scale .+ rhs
