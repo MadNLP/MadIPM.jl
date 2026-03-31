@@ -100,29 +100,51 @@ function get_correction!(
     return
 end
 
-function set_aug_diagonal_reg!(kkt, solver::AbstractBatchMPCSolver)
-    xl_r = lower(solver.xl)
-    x_lr = lower(solver.x)
-    zl_r = lower(solver.zl)
-    xu_r = upper(solver.xu)
-    x_ur = upper(solver.x)
-    zu_r = upper(solver.zu)
-
+function _set_aug_diagonal_reg_unmasked!(kkt, solver::AbstractBatchMPCSolver)
     kkt.reg .= solver.del_w
     du_diag(kkt) .= solver.del_c
-
-    kkt.l_diag .= xl_r .- x_lr
-    kkt.u_diag .= x_ur .- xu_r
-
-    kkt.l_lower .= zl_r
-    kkt.u_lower .= zu_r
-
+    kkt.l_diag .= lower(solver.xl) .- lower(solver.x)
+    kkt.u_diag .= upper(solver.x) .- upper(solver.xu)
+    kkt.l_lower .= lower(solver.zl)
+    kkt.u_lower .= upper(solver.zu)
     pr_diag(kkt) .= kkt.reg
     pr_diag_lb = view(kkt.nzVals, _get_ind_lb(solver), :)
     pr_diag_ub = view(kkt.nzVals, _get_ind_ub(solver), :)
     pr_diag_lb .-= kkt.l_lower ./ kkt.l_diag
     pr_diag_ub .-= kkt.u_lower ./ kkt.u_diag
     return
+end
+
+function _set_aug_diagonal_reg_masked!(kkt, solver::AbstractBatchMPCSolver)
+    xl_r = lower(solver.xl)
+    x_lr = lower(solver.x)
+    zl_r = lower(solver.zl)
+    xu_r = upper(solver.xu)
+    x_ur = upper(solver.x)
+    zu_r = upper(solver.zu)
+    mask = solver.workspace.active_mask
+    _du = du_diag(kkt)
+    _pr = pr_diag(kkt)
+    @. kkt.reg = ifelse(mask == 1, solver.del_w, kkt.reg)
+    @. _du = ifelse(mask == 1, solver.del_c, _du)
+    @. kkt.l_diag = ifelse(mask == 1, xl_r - x_lr, kkt.l_diag)
+    @. kkt.u_diag = ifelse(mask == 1, x_ur - xu_r, kkt.u_diag)
+    @. kkt.l_lower = ifelse(mask == 1, zl_r, kkt.l_lower)
+    @. kkt.u_lower = ifelse(mask == 1, zu_r, kkt.u_lower)
+    @. _pr = ifelse(mask == 1, kkt.reg, _pr)
+    pr_diag_lb = view(kkt.nzVals, _get_ind_lb(solver), :)
+    pr_diag_ub = view(kkt.nzVals, _get_ind_ub(solver), :)
+    @. pr_diag_lb = ifelse(mask == 1, pr_diag_lb - kkt.l_lower / kkt.l_diag, pr_diag_lb)
+    @. pr_diag_ub = ifelse(mask == 1, pr_diag_ub - kkt.u_lower / kkt.u_diag, pr_diag_ub)
+    return
+end
+
+function set_aug_diagonal_reg!(kkt, solver::AbstractBatchMPCSolver)
+    if is_identity_view(active_view(solver.batch_views))
+        _set_aug_diagonal_reg_unmasked!(kkt, solver)
+    else
+        _set_aug_diagonal_reg_masked!(kkt, solver)
+    end
 end
 
 function get_complementarity_measure!(solver::AbstractBatchMPCSolver)
