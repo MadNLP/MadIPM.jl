@@ -149,7 +149,7 @@ function gather_batch_view_columns!(
     return dst
 end
 
-function compact_active_columns_inplace!(dst::AbstractMatrix{T}, batch_view::BatchView) where T
+function compact_active_columns_inplace!(dst::AbstractMatrix{T}, batch_view::BatchView, scratch=nothing) where T
     roots = batch_view.local_to_root
     @inbounds for j in 1:batch_view.n
         src_j = roots[j]
