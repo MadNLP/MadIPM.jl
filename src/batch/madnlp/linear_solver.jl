@@ -30,11 +30,7 @@ function LoopedBatchLinearSolver(
     LoopedBatchLinearSolver{T, VT, eltype(individual_solvers)}(individual_solvers, batch_size)
 end
 
-function is_factorized(batch_linear_solver::LoopedBatchLinearSolver)
-    return all(is_factorized(s) for s in batch_linear_solver.solvers)
-end
-
-function failed_factorization_local_count!(
+function is_factorized!(
     failed_local_buffer::Vector{Int32},
     batch_linear_solver::LoopedBatchLinearSolver,
     factor_view::BatchView,
@@ -66,4 +62,4 @@ function solve_active!(s::LoopedBatchLinearSolver{T, VT}, rhs::AbstractMatrix{T}
     end
     return
 end
-failed_factorization_local_count!(::Vector{Int32}, ::MadNLP.AbstractLinearSolver, ::BatchView) = 0
+is_factorized!(::Vector{Int32}, ::MadNLP.AbstractLinearSolver, ::BatchView) = 0

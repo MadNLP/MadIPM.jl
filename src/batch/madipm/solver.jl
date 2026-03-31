@@ -462,7 +462,7 @@ function factorize_system!(batch_solver::AbstractBatchMPCSolver)
     for _ in 1:max_trials
         set_aug_diagonal_reg!(batch_solver.kkt, batch_solver)
         MadNLP.factorize_wrapper!(batch_solver)
-        nfailed = failed_factorization_local_count!(
+        nfailed = is_factorized!(
             failed_locals, batch_solver.kkt.batch_solver, factor_view,
         )
         nfailed == 0 && break
@@ -606,11 +606,12 @@ function MadNLP.print_iter(batch_solver::AbstractBatchMPCSolver)
     bs = batch_solver.batch_size
     k = maximum(bcnt.k)
 
+    active_str = "$na/$bs"
     mod(k, 10) == 0 && MadNLP.@info(logger, @sprintf(
         " iter  active  max_inf_pr  max_inf_du  max_inf_compl  max_alpha_p"))
     MadNLP.@info(logger, @sprintf(
-        "%4i   %3i/%3i   %6.2e     %6.2e      %7.2e      %6.2e",
-        k, na, bs,
+        "%4i  ", k) * lpad(active_str, 6) * @sprintf(
+        "   %6.2e     %6.2e      %7.2e      %6.2e",
         maximum(ws.inf_pr), maximum(ws.inf_du),
         maximum(ws.inf_compl), maximum(ws.alpha_p),
     ))

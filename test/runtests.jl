@@ -214,10 +214,10 @@ end
 #     include("MOI_wrapper.jl")
 # end
 
-include("test_batch.jl")
-include("batch_kernels/runtests.jl")
+include("batch/views.jl")
+include("batch/solver.jl")
 
 if CUDA.functional()
     include("test_gpu.jl")
-    include("test_batch_gpu.jl")
+    include("batch/gpu.jl")
 end

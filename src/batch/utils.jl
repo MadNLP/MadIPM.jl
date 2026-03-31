@@ -8,13 +8,6 @@ function _csc_with_nzval(A::SparseArrays.SparseMatrixCSC, nzval, n)
     return SparseArrays.SparseMatrixCSC(n, n, SparseArrays.getcolptr(A), SparseArrays.rowvals(A), nzval)
 end
 
-batch_maximum!(out::AbstractMatrix{T}, src::AbstractMatrix{T}) where {T} =
-    batch_mapreduce!(identity, max, typemin(T), out, src)
-batch_minimum!(out::AbstractMatrix{T}, src::AbstractMatrix{T}) where {T} =
-    batch_mapreduce!(identity, min, typemax(T), out, src)
-batch_sum!(out::AbstractMatrix{T}, src::AbstractMatrix{T}) where {T} =
-    batch_mapreduce!(identity, +, zero(T), out, src)
-
 function zero_inactive_step!(batch_solver::AbstractBatchMPCSolver{T}) where T
     ws = batch_solver.workspace
     ws.alpha_p .*= ws.active_mask

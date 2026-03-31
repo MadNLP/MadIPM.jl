@@ -14,7 +14,8 @@ import BatchQuadraticModels:
   ObjRHSBatchQuadraticModel,
   BatchSparseOp,
   batch_spmv!,
-  batch_mapreduce!
+  batch_mapreduce!,
+  batch_maximum!
 
 include("utils.jl")
 include("structure.jl")
