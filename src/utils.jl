@@ -474,10 +474,10 @@ function standard_form_qp(qp::QuadraticModels.QuadraticModel)
     # Keep fixed variables in the formulation
     uvar_[ind_fixed] .= uvar[ind_fixed]
 
+    hasfield(typeof(qp.data), :regularize) && qp.data.regularize && error("Regularized QP not yet supported in MadIPM. Please open an issue.")
     data = QuadraticModels.QPData(
         qp.data.c0,
         [qp.data.c; zeros(ns + nw)],
-        [qp.data.v; zeros(ns + nw)],
         Hs,
         As,
     )
@@ -502,4 +502,3 @@ function standard_form_qp(qp::QuadraticModels.QuadraticModel)
         data,
     )
 end
-

@@ -70,10 +70,10 @@ function scale_qp(qp::QuadraticModel)
     _scale_coo!(Hs, Dc, Dc)
     _scale_coo!(As, Dr, Dc)
 
+    hasfield(typeof(qp.data), :regularize) && qp.data.regularize && error("Regularized QP not yet supported in MadIPM. Please open an issue.")
     data = QuadraticModels.QPData(
         qp.data.c0,
         qp.data.c ./ Dc,
-        qp.data.v,
         Hs,
         As,
     )
@@ -98,4 +98,3 @@ function scale_qp(qp::QuadraticModel)
         data,
     )
 end
-
