@@ -93,29 +93,27 @@ function init_starting_point!(solver::MadNLP.AbstractMadNLPSolver)
     delta_x2 = μ / (2 * (sum(zl) + sum(zu)))
     delta_s2 = μ / (2 * (sum(xl .- lb) + sum(ub .- xu)))
 
-    xl .+= delta_x2
-    xu .-= delta_x2
-    zl .+= delta_s2
-    zu .+= delta_s2
-
-    # Use Ipopt's heuristic to project x back on the interval [l, u]
-    kappa = solver.opt.bound_fac
     map!(
         (l_, u_, x_) -> begin
-            out = if x_ < l_
-                pl = min(kappa * max(1.0, l_), kappa * (u_ - l_))
-                l_ + pl
-            elseif u_ < x_
-                pu = min(kappa * max(1.0, u_), kappa * (u_ - l_))
-                u_ - pu
+            has_lb = l_ > -Inf
+            has_ub = u_ < Inf
+            if has_lb && has_ub
+                t = min(delta_x2, (u_ - l_) / 4)
+                clamp(x_, l_ + t, u_ - t)
+            elseif has_lb
+                x_ + delta_x2
+            elseif has_ub
+                x_ - delta_x2
             else
                 x_
             end
-            out
         end,
         x,
         l, u, x,
     )
+
+    zl .+= delta_s2
+    zu .+= delta_s2
 
     @assert all(solver.zl_r .> 0.0)
     @assert all(solver.zu_r .> 0.0)
