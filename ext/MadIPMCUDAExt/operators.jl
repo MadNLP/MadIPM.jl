@@ -22,13 +22,15 @@ for (SparseMatrixType, BlasType) in ((:(CuSparseMatrixCSR{T}), :BlasFloat),
     @eval begin
         function MadIPMOperator(A::$SparseMatrixType; transa::Char='N', symmetric::Bool=false, spmm_ncols::Int=0) where T <: $BlasType
             m, n = size(A)
+            op_in = transa == 'N' ? n : m
+            op_out = transa == 'N' ? m : n
             alpha = Ref{T}(one(T))
             beta = Ref{T}(zero(T))
             bool = symmetric && (nnz(A) > 0)
             mat = bool ? tril(A, -1) + A' : A
             descA = CUSPARSE.CuSparseMatrixDescriptor(mat, 'O')
-            descX = CUSPARSE.CuDenseVectorDescriptor(T, n)
-            descY = CUSPARSE.CuDenseVectorDescriptor(T, m)
+            descX = CUSPARSE.CuDenseVectorDescriptor(T, op_in)
+            descY = CUSPARSE.CuDenseVectorDescriptor(T, op_out)
             algo = CUSPARSE.CUSPARSE_SPMV_ALG_DEFAULT
             buffer_size = Ref{Csize_t}()
             CUSPARSE.cusparseSpMV_bufferSize(CUSPARSE.handle(), transa, alpha, descA, descX, beta, descY, T, algo, buffer_size)
@@ -54,7 +56,7 @@ for (SparseMatrixType, BlasType) in ((:(CuSparseMatrixCSR{T}), :BlasFloat),
             else
                 CuVector{UInt8}(undef, 0)
             end
-            return MadIPMOperator{T,M,M2}(T, m, n, A, mat, transa, descA, buffer, spmm_buffer, alpha, beta)
+            return MadIPMOperator{T,M,M2}(T, op_out, op_in, A, mat, transa, descA, buffer, spmm_buffer, alpha, beta)
         end
     end
 end
