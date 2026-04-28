@@ -477,7 +477,6 @@ function standard_form_qp(qp::QuadraticModels.QuadraticModel)
     data = QuadraticModels.QPData(
         qp.data.c0,
         [qp.data.c; zeros(ns + nw)],
-        [qp.data.v; zeros(ns + nw)],
         Hs,
         As,
     )
@@ -502,4 +501,3 @@ function standard_form_qp(qp::QuadraticModels.QuadraticModel)
         data,
     )
 end
-

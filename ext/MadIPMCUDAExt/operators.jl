@@ -7,6 +7,7 @@ mutable struct MadIPMOperator{T,M,M2} <: AbstractMatrix{T}
     transa::Char
     descA::CUSPARSE.CuSparseMatrixDescriptor
     buffer::CuVector{UInt8}
+    spmm_buffer::CuVector{UInt8}
     alpha::Base.RefValue{T}
     beta::Base.RefValue{T}
 end
@@ -19,7 +20,7 @@ for (SparseMatrixType, BlasType) in ((:(CuSparseMatrixCSR{T}), :BlasFloat),
                                      (:(CuSparseMatrixCSC{T}), :BlasFloat),
                                      (:(CuSparseMatrixCOO{T}), :BlasFloat))
     @eval begin
-        function MadIPMOperator(A::$SparseMatrixType; transa::Char='N', symmetric::Bool=false) where T <: $BlasType
+        function MadIPMOperator(A::$SparseMatrixType; transa::Char='N', symmetric::Bool=false, spmm_ncols::Int=0) where T <: $BlasType
             m, n = size(A)
             op_in = transa == 'N' ? n : m
             op_out = transa == 'N' ? m : n
@@ -41,9 +42,35 @@ for (SparseMatrixType, BlasType) in ((:(CuSparseMatrixCSR{T}), :BlasFloat),
             M2 = typeof(mat)
             alpha = Ref{T}(one(T))
             beta = Ref{T}(zero(T))
-            return MadIPMOperator{T,M,M2}(T, op_out, op_in, A, mat, transa, descA, buffer, alpha, beta)
+            spmm_buffer = if spmm_ncols > 0
+                descB = CUSPARSE.CuDenseMatrixDescriptor(T, n, spmm_ncols)
+                descC = CUSPARSE.CuDenseMatrixDescriptor(T, m, spmm_ncols)
+                spmm_buf_size = Ref{Csize_t}()
+                spmm_algo = CUSPARSE.CUSPARSE_SPMM_ALG_DEFAULT
+                CUSPARSE.cusparseSpMM_bufferSize(CUSPARSE.handle(), transa, 'N', alpha, descA, descB, beta, descC, T, spmm_algo, spmm_buf_size)
+                buf = CuVector{UInt8}(undef, spmm_buf_size[])
+                if CUSPARSE.version() ≥ v"12.3"
+                    CUSPARSE.cusparseSpMM_preprocess(CUSPARSE.handle(), transa, 'N', alpha, descA, descB, beta, descC, T, spmm_algo, buf)
+                end
+                buf
+            else
+                CuVector{UInt8}(undef, 0)
+            end
+            return MadIPMOperator{T,M,M2}(T, op_out, op_in, A, mat, transa, descA, buffer, spmm_buffer, alpha, beta)
         end
     end
+end
+
+function LinearAlgebra.mul!(Y::CuMatrix{T}, A::MadIPMOperator{T}, X::CuMatrix{T}) where T <: BlasFloat
+    (size(Y, 1) != A.m) && throw(DimensionMismatch("size(Y,1) != A.m"))
+    (size(X, 1) != A.n) && throw(DimensionMismatch("size(X,1) != A.n"))
+    descX = CUSPARSE.CuDenseMatrixDescriptor(X)
+    descY = CUSPARSE.CuDenseMatrixDescriptor(Y)
+    CUSPARSE.cusparseSpMM(
+        CUSPARSE.handle(), A.transa, 'N',
+        A.alpha, A.descA, descX, A.beta, descY,
+        T, CUSPARSE.CUSPARSE_SPMM_ALG_DEFAULT, A.spmm_buffer,
+    )
 end
 
 function LinearAlgebra.mul!(y::CuVector{T}, A::MadIPMOperator{T}, x::CuVector{T}) where T <: BlasFloat
@@ -53,4 +80,13 @@ function LinearAlgebra.mul!(y::CuVector{T}, A::MadIPMOperator{T}, x::CuVector{T}
     descX = CUSPARSE.CuDenseVectorDescriptor(x)
     algo = CUSPARSE.CUSPARSE_SPMV_ALG_DEFAULT
     CUSPARSE.cusparseSpMV(CUSPARSE.handle(), A.transa, A.alpha, A.descA, descX, A.beta, descY, T, algo, A.buffer)
+end
+
+function LinearAlgebra.mul!(Y::CuMatrix{T}, A::MadIPMOperator{T}, X::CuMatrix{T}, α::Number, β::Number) where T <: BlasFloat
+    A.alpha[] = T(α)
+    A.beta[] = T(β)
+    mul!(Y, A, X)
+    A.alpha[] = one(T)
+    A.beta[] = zero(T)
+    return Y
 end
