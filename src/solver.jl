@@ -203,7 +203,7 @@ function update_termination_criteria!(solver::MadNLP.AbstractMadNLPSolver)
     ) / max(1.0, solver.norm_c)
     solver.inf_compl = get_optimality_gap(solver) / max(1.0, solver.norm_c)
     solver.best_complementarity = min(solver.best_complementarity, solver.inf_compl)
-    
+
     if max(solver.inf_pr, solver.inf_du, solver.inf_compl) <= solver.opt.tol
         solver.status = MadNLP.SOLVE_SUCCEEDED
     elseif ((solver.inf_compl > solver.opt.divergence_tol * solver.best_complementarity) &&
@@ -354,8 +354,8 @@ end
 
 function mpc!(solver::MadNLP.AbstractMadNLPSolver)
     while true
-        MadNLP.print_iter(solver)
         update_termination_criteria!(solver)
+        MadNLP.print_iter(solver)
         is_done(solver) && return
         mpc_step!(solver)
     end
@@ -365,7 +365,7 @@ solve!(solver::MadNLP.AbstractMadNLPSolver; kwargs...) = solve!(solver, MadNLP.M
 function solve!(
     solver::MadNLP.AbstractMadNLPSolver,
     stats::MadNLP.MadNLPExecutionStats;
-    kwargs...    
+    kwargs...
 )
     nlp = solver.nlp
     solver.cnt.start_time = time()
