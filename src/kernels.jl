@@ -121,6 +121,7 @@ function set_extra_correction!(
     return
 end
 
+# Default implementation
 function set_aug_diagonal_reg!(kkt::MadNLP.AbstractKKTSystem{T}, solver::MadNLP.AbstractMadNLPSolver{T}) where T
     fill!(kkt.reg, solver.del_w)
     fill!(kkt.du_diag, solver.del_c)
@@ -145,6 +146,27 @@ function set_aug_diagonal_reg!(kkt::MadNLP.ScaledSparseKKTSystem{T}, solver::Mad
     copyto!(kkt.u_lower, solver.zu_r)
 
     MadNLP._set_aug_diagonal!(kkt)
+    return
+end
+
+function set_aug_diagonal_reg!(kkt::MadNLP.SparseUnreducedKKTSystem{T}, solver::MadNLP.AbstractMadNLPSolver{T}) where T
+    x = full(solver.x)
+    xl = full(solver.xl)
+    xu = full(solver.xu)
+    zl = full(solver.zl)
+    zu = full(solver.zu)
+
+    fill!(kkt.reg, solver.del_w)
+    fill!(kkt.du_diag, solver.del_c)
+    kkt.l_diag .= solver.xl_r .- solver.x_lr   # (Xˡ - X)
+    kkt.u_diag .= solver.x_ur .- solver.xu_r   # (X - Xᵘ)
+    copyto!(kkt.l_lower, solver.zl_r)
+    copyto!(kkt.u_lower, solver.zu_r)
+
+    copyto!(kkt.pr_diag, kkt.reg)
+    kkt.l_lower_aug .= sqrt.(kkt.l_lower)
+    kkt.u_lower_aug .= sqrt.(kkt.u_lower)
+
     return
 end
 
