@@ -1,7 +1,6 @@
 module MadIPM
 
 # Hello world
-# Hello world
 
 using Printf
 using LinearAlgebra
