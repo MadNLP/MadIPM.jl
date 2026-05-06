@@ -1,5 +1,7 @@
 module MadIPM
 
+# Hello world
+
 using Printf
 using LinearAlgebra
 import SparseArrays
