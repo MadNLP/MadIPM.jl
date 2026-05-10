@@ -18,7 +18,7 @@ function _gpu_batch(qps; Model=ObjRHSBatchQuadraticModel, atol=1e-6, batch_kwarg
         uniformbatch_linear_solver=MadNLPGPU.CUDSSSolver,
         cudss_algorithm=MadNLP.LDL,
         batch_kwargs...)
-    CUDA.@allowscalar for i in 1:bs
+    CUDACore.@allowscalar for i in 1:bs
         @test stats[i].status == MadNLP.SOLVE_SUCCEEDED
         @test stats[i].objective ≈ refs[i].objective atol=atol
         @test Array(stats[i].solution) ≈ refs[i].solution atol=atol
@@ -42,7 +42,7 @@ end
     MadIPM.gather_batch_view_columns!(gathered, src, child)
     @test Array(gathered) == Array(src[:, [2, 4]])
 
-    scattered = CUDA.fill(-1.0, 3, 4)
+    scattered = CUDACore.fill(-1.0, 3, 4)
     MadIPM.scatter_batch_view_columns!(scattered, gathered, child)
     @test Array(scattered[:, [2, 4]]) == Array(src[:, [2, 4]])
     @test all(Array(scattered[:, [1, 3]]) .== -1.0)
@@ -117,7 +117,7 @@ end
         uniformbatch_linear_solver=MadNLPGPU.CUDSSSolver,
         cudss_algorithm=MadNLP.LDL,
         check_residual=true, tol_linear_solve=0.0)
-    CUDA.@allowscalar for i in 1:3
+    CUDACore.@allowscalar for i in 1:3
         @test stats[i].status == MadNLP.INTERNAL_ERROR
     end
 end
