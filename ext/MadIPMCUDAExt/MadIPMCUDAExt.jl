@@ -5,8 +5,8 @@ using SparseArrays
 using NLPModels
 using BatchQuadraticModels
 using QuadraticModels
-using CUDA
-using CUDA.CUSPARSE
+using CUDACore
+using cuSPARSE
 using CUDSS
 using KernelAbstractions
 import Atomix
@@ -19,8 +19,8 @@ include("operators.jl")
 include("cuda_wrapper.jl")
 include("cuda_batch_kernels.jl")
 
-function MadIPM._csc_with_nzval(A::CUSPARSE.CuSparseMatrixCSC, nzval, n)
-    return CUSPARSE.CuSparseMatrixCSC(A.colPtr, A.rowVal, nzval, (n, n))
+function MadIPM._csc_with_nzval(A::cuSPARSE.CuSparseMatrixCSC, nzval, n)
+    return cuSPARSE.CuSparseMatrixCSC(A.colPtr, A.rowVal, nzval, (n, n))
 end
 
 @kernel function _fill_sparse_structure!(rows, cols, Ap, Aj, Ax)
@@ -31,7 +31,7 @@ end
     end
 end
 
-function fill_structure!(A::CUSPARSE.CuSparseMatrixCSR, rows, cols)
+function fill_structure!(A::cuSPARSE.CuSparseMatrixCSR, rows, cols)
     @assert length(cols) == length(rows)
     if length(cols) > 0
         backend = CUDABackend()
@@ -59,7 +59,7 @@ function NLPModels.hess_structure!(
     qp::QuadraticModel{T, S, M1},
     rows::AbstractVector{<:Integer},
     cols::AbstractVector{<:Integer},
-) where {T, S, M1 <: MadIPMOperator{T, <: CUSPARSE.CuSparseMatrixCSR}}
+) where {T, S, M1 <: MadIPMOperator{T, <: cuSPARSE.CuSparseMatrixCSR}}
     fill_structure!(qp.data.H.A, rows, cols)
     return rows, cols
 end
@@ -69,7 +69,7 @@ function NLPModels.hess_coord!(
     x::AbstractVector{T},
     vals::AbstractVector{T};
     obj_weight::Real = one(eltype(x)),
-) where {T, S, M1 <: MadIPMOperator{T, <: CUSPARSE.CuSparseMatrixCSR}}
+) where {T, S, M1 <: MadIPMOperator{T, <: cuSPARSE.CuSparseMatrixCSR}}
     NLPModels.increment!(qp, :neval_hess)
     vals .= obj_weight .* qp.data.H.A.nzVal
     return vals
@@ -79,7 +79,7 @@ function NLPModels.jac_lin_coord!(
     qp::QuadraticModel{T, S, M1, M2},
     x::AbstractVector,
     vals::AbstractVector,
-) where {T, S, M1, M2 <: MadIPMOperator{T, <: CUSPARSE.CuSparseMatrixCSR}}
+) where {T, S, M1, M2 <: MadIPMOperator{T, <: cuSPARSE.CuSparseMatrixCSR}}
     @lencheck qp.meta.nvar x
     @lencheck qp.meta.lin_nnzj vals
     NLPModels.increment!(qp, :neval_jac_lin)
@@ -91,7 +91,7 @@ function NLPModels.jac_lin_structure!(
     qp::QuadraticModel{T, S, M1, M2},
     rows::AbstractVector{<:Integer},
     cols::AbstractVector{<:Integer},
-) where {T, S, M1, M2 <: MadIPMOperator{T, <: CUSPARSE.CuSparseMatrixCSR}}
+) where {T, S, M1, M2 <: MadIPMOperator{T, <: cuSPARSE.CuSparseMatrixCSR}}
     @lencheck qp.meta.lin_nnzj rows cols
     fill_structure!(qp.data.A.A, rows, cols)
     return rows, cols
@@ -101,8 +101,8 @@ end
     CuSparseMatrixCOO
 =#
 
-function CUSPARSE.CuSparseMatrixCOO(A::SparseMatrixCOO{Tv, Ti}) where {Tv, Ti}
-    return CUSPARSE.CuSparseMatrixCOO{Tv, Ti}(
+function cuSPARSE.CuSparseMatrixCOO(A::SparseMatrixCOO{Tv, Ti}) where {Tv, Ti}
+    return cuSPARSE.CuSparseMatrixCOO{Tv, Ti}(
         CuVector(A.rows),
         CuVector(A.cols),
         CuVector(A.vals),
@@ -115,10 +115,10 @@ end
     CuSparseMatrixCSR
 =#
 
-function CUSPARSE.CuSparseMatrixCSR(A::SparseMatrixCOO{Tv, Ti}) where {Tv, Ti}
+function cuSPARSE.CuSparseMatrixCSR(A::SparseMatrixCOO{Tv, Ti}) where {Tv, Ti}
     m, n = size(A)
     Ap, Ai, Ax = MadIPM.coo_to_csr(m, n, A.rows, A.cols, A.vals)
-    return CUSPARSE.CuSparseMatrixCSR{Tv, Ti}(
+    return cuSPARSE.CuSparseMatrixCSR{Tv, Ti}(
         CuVector(Ap),
         CuVector(Ai),
         CuVector(Ax),

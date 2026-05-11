@@ -5,7 +5,7 @@ using MadNLP
 using MadIPM
 using MadNLPTests
 using QuadraticModels
-using CUDA
+using CUDACore
 
 function _compare_with_nlp(n, m, ind_fixed, ind_eq; max_ncorr=0, atol=1e-5)
     x0 = zeros(n)
@@ -217,7 +217,7 @@ end
 include("batch/views.jl")
 include("batch/solver.jl")
 
-if CUDA.functional()
+if CUDACore.functional()
     include("test_gpu.jl")
     include("batch/gpu.jl")
 end
