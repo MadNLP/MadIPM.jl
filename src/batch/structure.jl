@@ -21,6 +21,11 @@ struct UniformBatchWorkspace{T, VT<:AbstractVector{T}, MT<:AbstractMatrix{T}, MI
     inf_compl::MT
     best_complementarity::MT
     dual_obj::MT
+    primal_cert_res::MT
+    primal_cert_margin::MT
+    dual_cert_res::MT
+    dual_cert_bound::MT
+    dual_cert_margin::MT
     status::Vector{MadNLP.Status}
 
     _term_gpu::MI64
@@ -61,6 +66,11 @@ function UniformBatchWorkspace(::Type{MT}, ::Type{VT}, n::Int, m::Int, nlb::Int,
         MT(undef, 1, batch_size),  # inf_compl
         MT(undef, 1, batch_size),  # best_complementarity
         MT(undef, 1, batch_size),  # dual_obj
+        MT(undef, 1, batch_size),  # primal_cert_res
+        MT(undef, 1, batch_size),  # primal_cert_margin
+        MT(undef, 1, batch_size),  # dual_cert_res
+        MT(undef, 1, batch_size),  # dual_cert_bound
+        MT(undef, 1, batch_size),  # dual_cert_margin
         fill(MadNLP.INITIAL, batch_size),  # status
         similar(_proto, Int64, 1, batch_size),    # _term_gpu
         zeros(Int64, 1, batch_size),  # _term_cpu
