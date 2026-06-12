@@ -5,8 +5,7 @@ steps:
           version: "1.10"
       - JuliaCI/julia-test#v1: ~
     agents:
-      queue: "juliagpu"
-      cuda: "*"
+      queue: "cuda"
     if: build.message !~ /\[skip tests\]/
     timeout_in_minutes: 60
 
@@ -16,7 +15,6 @@ steps:
           version: "1.11"
       - JuliaCI/julia-test#v1: ~
     agents:
-      queue: "juliagpu"
-      cuda: "*"
+      queue: "cuda"
     if: build.message !~ /\[skip tests\]/
     timeout_in_minutes: 60
