@@ -9,7 +9,7 @@ import LinearAlgebra: BlasFloat
 end
 
 function MadNLP.transfer!(
-    dest::CUSPARSE.CuSparseMatrixCSC{Tv},
+    dest::cuSPARSE.CuSparseMatrixCSC{Tv},
     src::MadNLP.SparseMatrixCOO{Tv},
     map::CuVector{Int},
 ) where {Tv}
@@ -27,13 +27,13 @@ end
 
 function MadNLP.compress_hessian!(
     kkt::MadNLP.SparseKKTSystem{T,VT,MT},
-) where {T,VT,MT<:CUSPARSE.CuSparseMatrixCSC{T,Int32}}
+) where {T,VT,MT<:cuSPARSE.CuSparseMatrixCSC{T,Int32}}
     MadNLP.transfer!(kkt.hess_com, kkt.hess_raw, kkt.hess_csc_map)
 end
 
 function MadNLP.compress_jacobian!(
     kkt::MadIPM.NormalKKTSystem{T,VT,MT},
-) where {T,VT,MT<:CUSPARSE.CuSparseMatrixCSC{T,Int32}}
+) where {T,VT,MT<:cuSPARSE.CuSparseMatrixCSC{T,Int32}}
     n_slack = length(kkt.ind_ineq)
     kkt.A.V[end-n_slack+1:end] .= -1.0
     # Transfer to the matrix A stored in CSC format
@@ -112,13 +112,13 @@ MadIPM._nzval(A::CuSparseMatrixCSC) = A.nzVal
 
 # we introduce a new constructor that takes the nzvals as a matrix explicitly
 function MadNLPGPU.CUDSSSolver(
-    aug_com::CUSPARSE.CuSparseMatrixCSC{T,Cint},
+    aug_com::cuSPARSE.CuSparseMatrixCSC{T,Cint},
     nzvals_mat::CuMatrix{T},
     n::Int;
     opt::MadNLPGPU.CudssSolverOptions = MadNLPGPU.CudssSolverOptions(),
 ) where T
     batch_nzVal = vec(nzvals_mat)
-    batch_aug_com = CUSPARSE.CuSparseMatrixCSC(
+    batch_aug_com = cuSPARSE.CuSparseMatrixCSC(
         aug_com.colPtr, aug_com.rowVal, batch_nzVal, size(aug_com),
     )
     solver = MadNLPGPU.CUDSSSolver(batch_aug_com; opt=opt)

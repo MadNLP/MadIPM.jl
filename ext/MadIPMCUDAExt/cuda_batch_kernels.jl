@@ -110,7 +110,7 @@ _ftb_primal_lb_kernel!(alpha_out, dx, x, xb, tau, nrows) = begin
             d < zero(T) && (a = min(a, (-x[i, j] + xb[i, j]) * τ / d))
             i += blockDim().x * gridDim_reduce
         end
-        a = CUDA.reduce_block(min, a, T(Inf), Val(true))
+        a = CUDACore.reduce_block(min, a, T(Inf), Val(true))
         threadIdx().x == 1 && _atomic_colreduce!(min, alpha_out, j, a)
     end
     return
@@ -129,7 +129,7 @@ _ftb_primal_ub_kernel!(alpha_out, dx, x, xb, tau, nrows) = begin
             d > zero(T) && (a = min(a, (-x[i, j] + xb[i, j]) * τ / d))
             i += blockDim().x * gridDim_reduce
         end
-        a = CUDA.reduce_block(min, a, T(Inf), Val(true))
+        a = CUDACore.reduce_block(min, a, T(Inf), Val(true))
         threadIdx().x == 1 && _atomic_colreduce!(min, alpha_out, j, a)
     end
     return
@@ -148,7 +148,7 @@ _ftb_dual_lb_kernel!(alpha_out, dz, z, tau, nrows) = begin
             d < zero(T) && (a = min(a, -z[i, j] * τ / d))
             i += blockDim().x * gridDim_reduce
         end
-        a = CUDA.reduce_block(min, a, T(Inf), Val(true))
+        a = CUDACore.reduce_block(min, a, T(Inf), Val(true))
         threadIdx().x == 1 && _atomic_colreduce!(min, alpha_out, j, a)
     end
     return
@@ -167,7 +167,7 @@ _ftb_dual_ub_kernel!(alpha_out, dz, z, tau, nrows) = begin
             (d < zero(T) && z[i, j] + d < zero(T)) && (a = min(a, -z[i, j] * τ / d))
             i += blockDim().x * gridDim_reduce
         end
-        a = CUDA.reduce_block(min, a, T(Inf), Val(true))
+        a = CUDACore.reduce_block(min, a, T(Inf), Val(true))
         threadIdx().x == 1 && _atomic_colreduce!(min, alpha_out, j, a)
     end
     return
@@ -210,7 +210,7 @@ _affine_compl_lb_kernel!(out, x, xl, z, dx, dz, αp, αd, nrows) = begin
             s += (x[i,j] + ap * dx[i,j] - xl[i,j]) * (z[i,j] + ad * dz[i,j])
             i += blockDim().x * gridDim_reduce
         end
-        s = CUDA.reduce_block(+, s, zero(T), Val(true))
+        s = CUDACore.reduce_block(+, s, zero(T), Val(true))
         threadIdx().x == 1 && _atomic_colreduce!(+, out, j, s)
     end
     return
@@ -228,7 +228,7 @@ _affine_compl_ub_kernel!(out, xu, x, z, dx, dz, αp, αd, nrows) = begin
             s += (xu[i,j] - (x[i,j] + ap * dx[i,j])) * (z[i,j] + ad * dz[i,j])
             i += blockDim().x * gridDim_reduce
         end
-        s = CUDA.reduce_block(+, s, zero(T), Val(true))
+        s = CUDACore.reduce_block(+, s, zero(T), Val(true))
         threadIdx().x == 1 && _atomic_colreduce!(+, out, j, s)
     end
     return
@@ -259,8 +259,8 @@ end
 @inline function _warp_argmin(val::T, idx::Int32) where T
     offset = Int32(16)
     while offset > Int32(0)
-        other_val = CUDA.shfl_down_sync(0xffffffff, val, offset)
-        other_idx = CUDA.shfl_down_sync(0xffffffff, idx, offset)
+        other_val = CUDACore.shfl_down_sync(0xffffffff, val, offset)
+        other_idx = CUDACore.shfl_down_sync(0xffffffff, idx, offset)
         if other_val < val
             val = other_val
             idx = other_idx
@@ -391,7 +391,7 @@ function MadIPM._mehrotra_step!(
     d_vals, ind_lb, ind_ub, dlb_off, dub_off,
 )
     bs = size(alpha_p, 2)
-    CUDA.@cuda threads=32 blocks=bs _mehrotra_step_kernel!(
+    CUDACore.@cuda threads=32 blocks=bs _mehrotra_step_kernel!(
         alpha_p, alpha_d, mu, gamma_f,
         dx_lr, x_lr, xl_r, Int32(nlb), dzlb, zl_r,
         dx_ur, x_ur, xu_r, Int32(nub), dzub, zu_r,
