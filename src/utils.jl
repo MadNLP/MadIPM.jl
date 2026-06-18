@@ -465,12 +465,17 @@ function standard_form_qp(qp::QuadraticModels.QuadraticModel)
     # Keep fixed variables in the formulation
     uvar_[ind_fixed] .= uvar[ind_fixed]
 
+    c = [qp.data.c; zeros(ns + nw)]
+    v = [qp.data.v; zeros(ns + nw)]
     data = QuadraticModels.QPData(
         qp.data.c0,
-        [qp.data.c; zeros(ns + nw)],
-        [qp.data.v; zeros(ns + nw)],
+        c,
+        v,
         Hs,
         As,
+        false,
+        1:length(c),
+        zero(qp.data.c0),
     )
 
     return QuadraticModels.QuadraticModel(

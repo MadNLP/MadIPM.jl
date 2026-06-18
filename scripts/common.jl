@@ -76,6 +76,9 @@ function scale_qp(qp::QuadraticModel)
         qp.data.v,
         Hs,
         As,
+        false,
+        1:length(qp.data.c),
+        zero(qp.data.c0),
     )
 
     return QuadraticModel(
