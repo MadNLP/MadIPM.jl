@@ -76,24 +76,6 @@ mutable struct MPCSolver{
     status::MadNLP.Status
 end
 
-for (k, attribute) in enumerate(fieldnames(MPCSolver))
-    fname = "get_$(attribute)"
-    sf = Symbol(fname)
-    if isdefined(MadNLP, sf)
-        @eval begin
-            @inline function MadNLP.$(sf)(solver::MPCSolver)
-                return getfield(solver, $k)
-            end
-        end
-    else
-        @eval begin
-            @inline function $(sf)(solver::MPCSolver)
-                return getfield(solver, $k)
-            end
-        end
-    end
-end
-
 function MPCSolver(nlp::NLPModels.AbstractNLPModel{T,VT}; kwargs...) where {T, VT}
     options = load_options(nlp; kwargs...)
 
@@ -203,3 +185,4 @@ function MadNLP.print_iter(solver::MPCSolver; options...)
         solver.alpha_d,solver.alpha_p))
     return
 end
+
