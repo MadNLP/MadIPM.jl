@@ -156,6 +156,50 @@ end
         @test flag
     end
 
+    @testset "Certificate termination" begin
+        infeas_lp = QuadraticModel(
+            [0.0],
+            Int[],
+            Int[],
+            Float64[];
+            Arows = [1],
+            Acols = [1],
+            Avals = [1.0],
+            lcon = [-1.0],
+            ucon = [-1.0],
+            lvar = [0.0],
+            uvar = [Inf],
+            x0 = [0.0],
+        )
+        infeas_solver = MadIPM.MPCSolver(infeas_lp; print_level=MadNLP.ERROR, scaling=false)
+        @test infeas_solver.class isa MadIPM.LinearProgram
+        MadIPM.initialize!(infeas_solver)
+        infeas_solver.y .= 1.0
+        infeas_solver.zl_r .= 1.0
+        MadNLP.jtprod!(infeas_solver.jacl, infeas_solver.kkt, infeas_solver.y)
+        @test MadIPM.has_primal_infeasibility_certificate(infeas_solver)
+        MadIPM.update_termination_criteria!(infeas_solver)
+        @test infeas_solver.status == MadNLP.INFEASIBLE_PROBLEM_DETECTED
+
+        unbounded_lp = QuadraticModel(
+            [-1.0],
+            Int[],
+            Int[],
+            Float64[];
+            lvar = [0.0],
+            uvar = [Inf],
+            x0 = [1.0],
+        )
+        unbounded_solver = MadIPM.MPCSolver(unbounded_lp; print_level=MadNLP.ERROR, scaling=false)
+        @test unbounded_solver.class isa MadIPM.LinearProgram
+        MadIPM.initialize!(unbounded_solver)
+        MadNLP.primal(unbounded_solver.x) .= 1.0
+        MadIPM.evaluate_model!(unbounded_solver)
+        @test MadIPM.has_dual_infeasibility_certificate(unbounded_solver)
+        MadIPM.update_termination_criteria!(unbounded_solver)
+        @test unbounded_solver.status == MadNLP.DIVERGING_ITERATES
+    end
+
     @testset "Standard formulation" begin
         new_qp = MadIPM.standard_form_qp(qp)
         solver = MadIPM.MPCSolver(new_qp; print_level=MadNLP.ERROR)

@@ -245,6 +245,11 @@ function initialize_solver_state!(batch_solver::AbstractBatchMPCSolver{T}) where
     fill!(ws.inf_du, zero(T))
     fill!(ws.inf_compl, zero(T))
     fill!(ws.dual_obj, zero(T))
+    fill!(ws.primal_cert_res, typemax(T))
+    fill!(ws.primal_cert_margin, -typemax(T))
+    fill!(ws.dual_cert_res, typemax(T))
+    fill!(ws.dual_cert_bound, typemax(T))
+    fill!(ws.dual_cert_margin, -typemax(T))
     fill!(ws.alpha_p, zero(T))
     fill!(ws.alpha_d, zero(T))
     t_now = time()
@@ -267,6 +272,9 @@ function compute_term_gpu!(ws::UniformBatchWorkspace{T}, opt) where T
     Int_INFEASIBLE = Int(MadNLP.INFEASIBLE_PROBLEM_DETECTED)
     Int_DIVERGING = Int(MadNLP.DIVERGING_ITERATES)
     Int_REGULAR = Int(MadNLP.REGULAR)
+    cert_enabled = opt.certificate_termination
+    pcert_tol = T(opt.primal_infeasibility_cert_tol)
+    dcert_tol = T(opt.dual_infeasibility_cert_tol)
     @. ws._term_gpu = ifelse(
         ws._ls_error > zero(Int32),
         Int_ERROR,
@@ -274,13 +282,26 @@ function compute_term_gpu!(ws::UniformBatchWorkspace{T}, opt) where T
             max(ws.inf_pr, ws.inf_du, ws.inf_compl) <= tol,
             Int_SOLVED,
             ifelse(
-                (ws.inf_compl > div_tol * ws.best_complementarity) &
-                (ws.dual_obj > max(ds * abs(ws.obj_val), one(T))),
+                cert_enabled &
+                (ws.primal_cert_res <= pcert_tol) &
+                (ws.primal_cert_margin > pcert_tol),
                 Int_INFEASIBLE,
                 ifelse(
-                    ws.obj_val < -(div_tol * max(ds * abs(ws.dual_obj), one(T))),
+                    cert_enabled &
+                    (ws.dual_cert_res <= dcert_tol) &
+                    (ws.dual_cert_bound <= dcert_tol) &
+                    (ws.dual_cert_margin > dcert_tol),
                     Int_DIVERGING,
-                    Int_REGULAR,
+                    ifelse(
+                        (ws.inf_compl > div_tol * ws.best_complementarity) &
+                        (ws.dual_obj > max(ds * abs(ws.obj_val), one(T))),
+                        Int_INFEASIBLE,
+                        ifelse(
+                            ws.obj_val < -(div_tol * max(ds * abs(ws.dual_obj), one(T))),
+                            Int_DIVERGING,
+                            Int_REGULAR,
+                        ),
+                    ),
                 ),
             ),
         ),
@@ -313,6 +334,8 @@ function update_termination_criteria!(batch_solver::AbstractBatchMPCSolver{T}) w
         lower(zl), lower(xl), upper(zu), upper(xu),
         ws.sum_lb, ws.sum_ub, nlb, nub)
 
+    update_primal_infeasibility_certificate!(batch_solver)
+    update_dual_infeasibility_certificate!(batch_solver)
     compute_term_gpu!(ws, opt)
     return
 end
