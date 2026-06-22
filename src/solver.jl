@@ -242,14 +242,14 @@ function mehrotra_correction_direction!(solver)
     return
 end
 
-function gondzio_correction_direction!(solver)
+function gondzio_correction_direction!(solver::MPCSolver{T}) where T
     solver.opt.max_ncorr ≤ 0 && return
 
-    δ = 0.1
-    γ = 0.1
-    βmin = 0.1
-    βmax = 10.0
-    tau = 0.995
+    δ = T(0.1)
+    γ = T(0.1)
+    βmin = T(0.1)
+    βmax = T(10.0)
+    tau = T(0.995)
     # Load buffer for descent direction.
     Δp = solver._w2.values
 
@@ -258,8 +258,8 @@ function gondzio_correction_direction!(solver)
 
     for ncorr in 1:solver.opt.max_ncorr
         # Enlarge step sizes in primal and dual spaces.
-        tilde_alpha_p = min(alpha_p + δ, 1.0)
-        tilde_alpha_d = min(alpha_d + δ, 1.0)
+        tilde_alpha_p = min(alpha_p + δ, one(T))
+        tilde_alpha_d = min(alpha_d + δ, one(T))
         # Apply Mehrotra's heuristic for centering parameter mu.
         ga = get_affine_complementarity_measure(solver, tilde_alpha_p, tilde_alpha_d)
         g = solver.mu_curr
@@ -285,7 +285,7 @@ function gondzio_correction_direction!(solver)
         hat_alpha_p, hat_alpha_d = get_fraction_to_boundary_step(solver, tau)
 
         # Stop extra correction if the stepsize does not increase sufficiently
-        if (hat_alpha_p < 1.005 * alpha_p) || (hat_alpha_d < 1.005 * alpha_d)
+        if (hat_alpha_p < T(1.005) * alpha_p) || (hat_alpha_d < T(1.005) * alpha_d)
             copyto!(solver.d.values, Δp)
             break
         else

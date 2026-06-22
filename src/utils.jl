@@ -66,8 +66,8 @@ end
     Options
 =#
 
-@kwdef mutable struct IPMOptions <: MadNLP.AbstractOptions
-    tol::Float64
+@kwdef mutable struct IPMOptions{T} <: MadNLP.AbstractOptions
+    tol::T
     kkt_system::Type
     linear_solver::Type
     # Output options
@@ -77,18 +77,18 @@ end
     rethrow_error::Bool = false
     # Termination options
     max_iter::Int = 3000
-    max_wall_time::Float64 = 1e6
-    divergence_tol::Float64 = 1e4
-    divergence_scale::Float64 = 10.0
-    kappa_d::Float64 = 1e-5
+    max_wall_time::T = 1e6
+    divergence_tol::T = 1e4
+    divergence_scale::T = 10.0
+    kappa_d::T = 1e-5
     fixed_variable_treatment::Type = kkt_system <: MadNLP.SparseCondensedKKTSystem ? MadNLP.RelaxBound : MadNLP.MakeParameter
     equality_treatment::Type = kkt_system <: MadNLP.SparseCondensedKKTSystem ? MadNLP.RelaxEquality : MadNLP.EnforceEquality
     # initialization options
     scaling::Bool = true
-    nlp_scaling_max_gradient::Float64 = 100.0
-    bound_push::Float64 = 1e-2
-    bound_fac::Float64 = 1e-2
-    bound_relax_factor::Float64 = 1e-12
+    nlp_scaling_max_gradient::T = 100.0
+    bound_push::T = 1e-2
+    bound_fac::T = 1e-2
+    bound_relax_factor::T = 1e-12
     # Regularization
     regularization::AbstractRegularization = FixedRegularization(1e-10, 1e-10)
     # Step
@@ -96,13 +96,13 @@ end
     # Barrier
     barrier_update::AbstractBarrierUpdate = Mehrotra()
     max_ncorr::Int = 0
-    s_max::Float64 = 100.0
-    mu_init::Float64 = 1e-1
-    mu_min::Float64 = 1e-12
-    mu_superlinear_decrease_power::Float64 = 1.5
-    tau_min::Float64 = 0.99
+    s_max::T = 100.0
+    mu_init::T = 1e-1
+    mu_min::T = 1e-12
+    mu_superlinear_decrease_power::T = 1.5
+    tau_min::T = 0.99
     # Linear solve
-    tol_linear_solve::Float64 = 1e-8
+    tol_linear_solve::T = 1e-8
     check_residual::Bool = false
 end
 
@@ -111,9 +111,9 @@ function IPMOptions(
     nlp::NLPModels.AbstractNLPModel{T};
     kkt_system =  MadNLP.SparseKKTSystem,
     linear_solver =  MadNLP.default_sparse_solver(nlp),
-    tol = 1e-8,
+    tol = T(1e-8),
 ) where T
-    return IPMOptions(
+    return IPMOptions{T}(
         tol = tol,
         kkt_system = kkt_system,
         linear_solver = linear_solver,
@@ -467,6 +467,7 @@ function standard_form_qp(qp::QuadraticModels.QuadraticModel)
         ucon_[m + k] = xu[k]
     end
 
+    c_ = [qp.data.c; zeros(ns + nw)]
     lvar_ = [lvar; lcon[ind_ineq]; zeros(nw)]
     uvar_ = [uvar; ucon[ind_ineq]; fill(Inf, nw)]
     # The upper bounds in range constraints have been moved in a separate constraint

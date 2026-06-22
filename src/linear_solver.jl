@@ -3,7 +3,7 @@
     Interface to direct solver for solving KKT system
 =#
 
-function factorize_regularized_system!(solver)
+function factorize_regularized_system!(solver::MPCSolver{T}) where T
     max_trials = 3
     for ntrial in 1:max_trials
         set_aug_diagonal_reg!(solver.kkt, solver)
@@ -11,8 +11,8 @@ function factorize_regularized_system!(solver)
         if is_factorized(solver.kkt.linear_solver)
             break
         end
-        solver.del_w *= 100.0
-        solver.del_c *= 100.0
+        solver.del_w *= T(100)
+        solver.del_c *= T(100)
     end
 end
 
@@ -27,6 +27,7 @@ function solve_system!(
 
     # Check residual
     w = solver._w1
+
     copyto!(MadNLP.full(w), MadNLP.full(p))
     mul!(w, solver.kkt, d, -one(T), one(T))
     norm_w = norm(MadNLP.full(w), Inf)
