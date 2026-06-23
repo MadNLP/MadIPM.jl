@@ -1,4 +1,6 @@
 
+using DelimitedFiles
+using Printf
 using MadIPM, MadNLP
 using MadNLPHSL
 using QuadraticModels, NLPModels
@@ -6,7 +8,6 @@ using BatchQuadraticModels: ObjRHSBatchQuadraticModel
 using MadNLPGPU, CUDA, CUDSS, KernelAbstractions
 using Random, Distributions, SparseArrays, Memoize
 using Base.Threads, Polyester
-using Printf
 using SparseMatricesCOO
 using QPSReader
 using HSL
