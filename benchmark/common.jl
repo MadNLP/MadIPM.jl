@@ -10,9 +10,8 @@ using Random, Distributions, SparseArrays, Memoize
 using Base.Threads, Polyester
 using SparseMatricesCOO
 using QPSReader
+using MIPLIB
 using HSL
-
-CUDA.device!(1)
 
 function refresh_memory()
     CUDA.reclaim()
@@ -20,7 +19,6 @@ function refresh_memory()
     CUDA.reclaim()
     return
 end
-
 
 const MadIPMCUDAExt = Base.get_extension(MadIPM, :MadIPMCUDAExt)
 function SparseMatricesCOO.SparseMatrixCOO(A::MadIPMCUDAExt.MadIPMOperator)
@@ -119,5 +117,39 @@ function build_qps(base_qp, batch_size; T = Float64, shift_c=true, shift_b=false
             c0 = base_sqp.data.c0,
         )
     end for i in 1:batch_size]
+end
+
+function _warmup(qp)
+    # Warmup CPU
+    cpu_solver = MadIPM.MPCSolver(
+        qp;
+        print_level=MadNLP.ERROR,
+        max_iter=1,
+        regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
+        linear_solver=Ma57Solver,
+    )
+    MadIPM.solve!(cpu_solver)
+
+    # Warmup GPU
+    qps = build_qps(qp, 2)
+    cpu_bnlp = ObjRHSBatchQuadraticModel(qps)
+    gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
+
+    gpu_solver = MadIPM.UniformBatchMPCSolver(
+        gpu_bnlp;
+        print_level=MadNLP.ERROR,
+        max_iter=1,
+        regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
+        uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
+        cudss_algorithm = MadNLP.LDL,
+    )
+    stats = MadIPM.solve!(gpu_solver)
+    return
+end
+
+function warmup(instance)
+    qp = load_instance(instance)
+    _warmup(qp)
+    return
 end
 

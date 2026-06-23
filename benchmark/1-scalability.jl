@@ -1,6 +1,8 @@
 
 include("common.jl")
 
+CUDA.device!(1)
+
 const NETLIB_PATH = fetch_netlib()
 const NNZJ_THRESHOLD = 5_000
 const WARMUP_INSTANCE = "ADLITTLE.SIF"
@@ -27,46 +29,13 @@ function select_netlib()
     return selected
 end
 
-function _warmup(qp)
-    # Warmup CPU
-    cpu_solver = MadIPM.MPCSolver(
-        qp;
-        print_level=MadNLP.ERROR,
-        max_iter=1,
-        regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
-        linear_solver=Ma57Solver,
-    )
-    MadIPM.solve!(cpu_solver)
-
-    # Warmup GPU
-    qps = build_qps(qp, 2)
-    cpu_bnlp = ObjRHSBatchQuadraticModel(qps)
-    gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
-
-    gpu_solver = MadIPM.UniformBatchMPCSolver(
-        gpu_bnlp;
-        print_level=MadNLP.ERROR,
-        max_iter=1,
-        regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
-        uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
-        cudss_algorithm = MadNLP.LDL,
-    )
-    stats = MadIPM.solve!(gpu_solver)
-    return
-end
-
-function warmup()
-    qp = load_instance(WARMUP_INSTANCE)
-    _warmup(qp)
-    return
-end
-
 function benchmark_scalability(cases, batches)
 
     m = 5 + length(batches)
     results = zeros(length(cases), m)
 
     for (k, case) in enumerate(cases)
+        @info case
         refresh_memory()
         # Launch on CPU
         qp = load_instance(case)
@@ -74,6 +43,7 @@ function benchmark_scalability(cases, batches)
             qp;
             print_level=MadNLP.ERROR,
             max_iter=500,
+            tol=1e-6,
             regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
             linear_solver=Ma57Solver,
         )
@@ -92,6 +62,7 @@ function benchmark_scalability(cases, batches)
             gpu_solver = MadIPM.UniformBatchMPCSolver(
                 gpu_bnlp;
                 print_level=MadNLP.ERROR,
+                tol=1e-6,
                 max_iter=500,
                 regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
                 uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
@@ -108,7 +79,7 @@ end
 
 function main()
     @info "Warmup"
-    warmup()
+    warmup(WARMUP_INSTANCE)
     # 1 -> 4096
     batches = [2^i for i in 0:12]
     cases = select_netlib()
@@ -118,3 +89,4 @@ function main()
 end
 
 main()
+
