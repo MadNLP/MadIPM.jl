@@ -4,30 +4,15 @@ include("common.jl")
 CUDA.device!(1)
 
 const NETLIB_PATH = fetch_netlib()
-const NNZJ_THRESHOLD = 5_000
+const MIPLIB_INSTANCES = "miplib_problems.txt"
 const WARMUP_INSTANCE = "ADLITTLE.SIF"
 
-@memoize function load_instance(case)
-    qpdat = readqps(joinpath(NETLIB_PATH, case))
-    return QuadraticModel(qpdat)
-end
-
-function warmup(instance)
-    qp = load_instance(instance)
-    _warmup(qp)
-    return
-end
-
-function select_netlib()
+function select_netlib_instance()
     cases = filter(x -> endswith(x, ".SIF"), readdir(NETLIB_PATH))
     selected = String[]
     for case in cases
         try
-            qp = load_instance(case)
-            # Select only medium-sized instances
-            if NLPModels.get_nnzj(qp) <= NNZJ_THRESHOLD
-                push!(selected, case)
-            end
+            qp = readqps(joinpath(NETLIB_PATH, case))
         catch ex
             println("Fail to load $(case)")
         end
@@ -35,9 +20,23 @@ function select_netlib()
     return selected
 end
 
-function benchmark_scalability(cases, batches)
+function select_miplib_instance()
+    return readdlm(joinpath(@__DIR__, MIPLIB_INSTANCES))[:]
+end
 
-    m = 5 + length(batches)
+function load_netlib_instance(case)
+    qpdat = readqps(joinpath(NETLIB_PATH, case))
+    return QuadraticModel(qpdat)
+end
+
+function load_miplib_instance(case)
+    return MIPLIB.miplib2010(case)
+end
+
+function benchmark_lps(cases, batches, load_instance; bench_options...)
+    m = 5 + 2*length(batches)
+    shift1 = 5
+    shift2 = shift1 + length(batches)
     results = zeros(length(cases), m)
 
     for (k, case) in enumerate(cases)
@@ -49,7 +48,6 @@ function benchmark_scalability(cases, batches)
             qp;
             print_level=MadNLP.ERROR,
             max_iter=500,
-            tol=1e-6,
             regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
             linear_solver=Ma57Solver,
         )
@@ -60,7 +58,7 @@ function benchmark_scalability(cases, batches)
         results[k, 4] = stats.iter
         results[k, 5] = stats.counters.total_time
         # Launch on GPU (batch)
-        qps = build_qps(qp, batches[end]; shift_c=false)
+        qps = build_qps(qp, batches[end]; bench_options...)
         for (l, batch) in enumerate(batches)
             # Test pure scalability, do not change cost vector here.
             cpu_bnlp = ObjRHSBatchQuadraticModel(qps[1:batch])
@@ -68,7 +66,6 @@ function benchmark_scalability(cases, batches)
             gpu_solver = MadIPM.UniformBatchMPCSolver(
                 gpu_bnlp;
                 print_level=MadNLP.ERROR,
-                tol=1e-6,
                 max_iter=500,
                 regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
                 uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
@@ -76,7 +73,8 @@ function benchmark_scalability(cases, batches)
                 cudss_pivot_epsilon=1e-8,
             )
             stats = MadIPM.solve!(gpu_solver)
-            results[k, 5+l] = sum(stats.total_time) / batch
+            results[k, shift1+l] = sum(stats.iter) / batch
+            results[k, shift2+l] = sum(stats.total_time) / batch
         end
     end
 
@@ -85,14 +83,10 @@ end
 
 function main()
     @info "Warmup"
-    warmup(WARMUP_INSTANCE)
-    # 1 -> 4096
-    batches = [2^i for i in 0:12]
-    cases = select_netlib()
-    @info "#instances: $(length(cases))"
-    results = benchmark_scalability(cases, batches)
+    _warmup(load_netlib_instance(WARMUP_INSTANCE))
+    batches = [1, 2, 4, 8]
+    cases = select_netlib_instance()
+    results = benchmark_lps(cases, batches, load_netlib_instance)
     writedlm(joinpath("results", "1-scalability-netlib.csv"), results)
 end
-
-main()
 

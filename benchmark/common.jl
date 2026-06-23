@@ -147,9 +147,3 @@ function _warmup(qp)
     return
 end
 
-function warmup(instance)
-    qp = load_instance(instance)
-    _warmup(qp)
-    return
-end
-
