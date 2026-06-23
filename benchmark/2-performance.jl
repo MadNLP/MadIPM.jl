@@ -13,6 +13,7 @@ function select_netlib_instance()
     for case in cases
         try
             qp = readqps(joinpath(NETLIB_PATH, case))
+            push!(selected, case)
         catch ex
             println("Fail to load $(case)")
         end
@@ -24,12 +25,12 @@ function select_miplib_instance()
     return readdlm(joinpath(@__DIR__, MIPLIB_INSTANCES))[:]
 end
 
-function load_netlib_instance(case)
+@memoize function load_netlib_instance(case)
     qpdat = readqps(joinpath(NETLIB_PATH, case))
     return QuadraticModel(qpdat)
 end
 
-function load_miplib_instance(case)
+@memoize function load_miplib_instance(case)
     return MIPLIB.miplib2010(case)
 end
 
@@ -83,10 +84,19 @@ end
 
 function main()
     @info "Warmup"
+    bench = :netlib
     _warmup(load_netlib_instance(WARMUP_INSTANCE))
     batches = [1, 2, 4, 8]
-    cases = select_netlib_instance()
-    results = benchmark_lps(cases, batches, load_netlib_instance)
-    writedlm(joinpath("results", "1-scalability-netlib.csv"), results)
+    if bench == :netlib
+        cases = select_netlib_instance()
+        results = benchmark_lps(cases, batches, load_netlib_instance)
+        writedlm(joinpath("results", "2-benchmark-netlib.csv"), results)
+    elseif bench == :miplib
+        cases = select_miplib_instance()
+        results = benchmark_lps(cases, batches, load_miplib_instance)
+        writedlm(joinpath("results", "2-benchmark-miplib.csv"), results)
+    end
+    return
 end
 
+main()
