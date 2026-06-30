@@ -62,7 +62,6 @@ function select_miplib_instance()
         "rmatr100-p10.mps.gz",
         "rmatr100-p5.mps.gz",
         "rmine6.mps.gz",
-        "rmine14.mps.gz",
         "sp98ic.mps.gz",
         "tanglegram1.mps.gz",
         "tanglegram2.mps.gz",

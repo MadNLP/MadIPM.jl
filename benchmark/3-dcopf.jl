@@ -11,11 +11,14 @@ const MATPOWER_DATA = "/home/fpacaud/dev/matpower/data"
 
 function select_dcopf_instances()
     return [
+        "case89pegase.m",
         "case118.m",
+        "case_ACTIVSg200.m",
+        "case_ACTIVSg500.m",
         "case1354pegase.m",
-        "case13659pegase.m",
         "case1888rte.m",
         "case1951rte.m",
+        "case_ACTIVSg2000.m",
         "case2848rte.m",
         "case2868rte.m",
         "case2869pegase.m",
@@ -23,14 +26,10 @@ function select_dcopf_instances()
         "case6470rte.m",
         "case6495rte.m",
         "case6515rte.m",
-        "case8387pegase.m",
-        "case89pegase.m",
         "case9241pegase.m",
         "case_ACTIVSg10k.m",
-        "case_ACTIVSg2000.m",
-        "case_ACTIVSg200.m",
+        "case13659pegase.m",
         "case_ACTIVSg25k.m",
-        "case_ACTIVSg500.m",
     ]
 end
 
@@ -169,7 +168,7 @@ function dcopf_model(data)
     return model
 end
 
-function build_dcopf_qps(base_qp, nbus, batch_size; tau=0.2)
+function build_dcopf_qps(base_qp, index, batch_size; tau=0.2)
     # NB: do not apply presolve here
 
     n = base_qp.meta.nvar
@@ -181,12 +180,12 @@ function build_dcopf_qps(base_qp, nbus, batch_size; tau=0.2)
     return [begin
         rng = Xoshiro(i)
 
-        sigma = (1-tau) .+ (2tau) .* rand(rng, nbus)
+        sigma = (1-tau) .+ (2tau) .* rand(rng, length(index))
         lvar_new = copy(lvar0)
         uvar_new = copy(uvar0)
 
-        lvar_new[n-nbus+1:n] .*= sigma
-        uvar_new[n-nbus+1:n] .*= sigma
+        lvar_new[index] .*= sigma
+        uvar_new[index] .*= sigma
 
         QuadraticModel(
             base_qp.data.c,
@@ -218,55 +217,67 @@ function warmup(instance)
 end
 
 function benchmark_dcopf(cases, batches)
-    m = 5 + length(batches)
+    m = 5 + 2*length(batches)
+    shift1 = 5
+    shift2 = shift1 + length(batches)
     results = zeros(length(cases), m)
 
     for (k, case) in enumerate(cases)
         @info case
         refresh_memory()
         # Load instance
-        qp, nbus = load_instance(case)
+        base_qp, nbus = load_instance(case)
+        n = NLPModels.get_nvar(base_qp)
+        index = (n-nbus+1:n)
+
+        qp = MadIPM.standard_form_qp(scale_qp(base_qp))
+
         results[k, 1] = NLPModels.get_nvar(qp)
         results[k, 2] = NLPModels.get_ncon(qp)
         results[k, 3] = NLPModels.get_nnzj(qp)
+
         # Launch on CPU
         cpu_solver = MadIPM.MPCSolver(
             qp;
             print_level=MadNLP.INFO,
-            max_iter=500,
+            max_iter=300,
             tol=1e-6,
-            regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
+            regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
             linear_solver=Ma57Solver,
+            scaling=false,
         )
         stats = MadIPM.solve!(cpu_solver)
         results[k, 4] = stats.iter
         results[k, 5] = stats.counters.total_time
         # Launch on GPU (batch)
-        qps = build_dcopf_qps(qp, nbus, batches[end])
+        qps = build_dcopf_qps(qp, index, batches[end]; tau=0.0)
         for (l, batch) in enumerate(batches)
             # Test pure scalability, do not change cost vector here.
-            # try
+            try
                 cpu_bnlp = ObjRHSBatchQuadraticModel(qps[1:batch])
                 gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
                 gpu_solver = MadIPM.UniformBatchMPCSolver(
                     gpu_bnlp;
                     print_level=MadNLP.INFO,
                     tol=1e-6,
-                    max_iter=500,
-                    regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
+                    max_iter=300,
+                    regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
                     uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
                     cudss_algorithm = MadNLP.LDL,
-                    cudss_pivot_epsilon=1e-8,
+                    # cudss_pivot_epsilon=1e-5,
+                    # cudss_ir=5,
                     scaling=false,
                     # rethrow_error=true,
                 )
                 stats = MadIPM.solve!(gpu_solver)
                 println(stats.total_time)
-                results[k, 5+l] = sum(stats.total_time) / batch
-            # catch ex
-            #     println("Failure for $(case): $(ex)")
-            #     results[k, 5+l] = -1
-            # end
+                results[k, shift1+l] = sum(stats.iter) / batch
+                results[k, shift2+l] = sum(stats.total_time) / batch
+            catch ex
+                println("Failure for $(case): $(ex)")
+                results[k, shift1+l] = -1
+                results[k, shift2+l] = -1
+            end
         end
     end
 
@@ -278,7 +289,7 @@ function main()
     warmup(WARMUP_INSTANCE)
 
     batches = [2^i for i in 0:4]
-    cases = select_dcopf_instances()[2:2]
+    cases = select_dcopf_instances()
     @info "#instances: $(length(cases))"
     results = benchmark_dcopf(cases, batches)
     writedlm(joinpath("results", "3-benchmark-dcopf.csv"), results)
