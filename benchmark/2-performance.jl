@@ -22,7 +22,52 @@ function select_netlib_instance()
 end
 
 function select_miplib_instance()
-    return readdlm(joinpath(@__DIR__, MIPLIB_INSTANCES))[:]
+    return [
+        "30n20b8.mps.gz",
+        "aflow40b.mps.gz",
+        "ash608gpia-3col.mps.gz",
+        "biella1.mps.gz",
+        "binkar10_1.mps.gz",
+        "bnatt350.mps.gz",
+        "core2536-691.mps.gz",
+        "cov1075.mps.gz",
+        "eil33-2.mps.gz",
+        "eilB101.mps.gz",
+        "enlight13.mps.gz",
+        "enlight14.mps.gz",
+        "glass4.mps.gz",
+        "gmu-35-40.mps.gz",
+        "iis-100-0-cov.mps.gz",
+        "iis-bupa-cov.mps.gz",
+        "iis-pima-cov.mps.gz",
+        "lectsched-4-obj.mps.gz",
+        "m100n500k4r1.mps.gz",
+        "macrophage.mps.gz",
+        "map18.mps.gz",               # slow 4
+        "map20.mps.gz",               # slow 4
+        "mik-250-1-100-1.mps.gz",
+        "mine-166-5.mps.gz",
+        "mine-90-10.mps.gz",
+        "n3div36.mps.gz",
+        "neos-1109824.mps.gz",
+        "neos13.mps.gz",
+        "neos18.mps.gz",
+        "neos-934278.mps.gz",
+        "noswot.mps.gz",
+        "pg5_34.mps.gz",
+        "pw-myciel4.mps.gz",
+        "qiu.mps.gz",
+        "rail507.mps.gz",
+        "reblock67.mps.gz",
+        "rmatr100-p10.mps.gz",
+        "rmatr100-p5.mps.gz",
+        "rmine6.mps.gz",
+        "rmine14.mps.gz",
+        "sp98ic.mps.gz",
+        "tanglegram1.mps.gz",
+        "tanglegram2.mps.gz",
+        "timtab1.mps.gz",
+    ]
 end
 
 @memoize function load_netlib_instance(case)
