@@ -529,8 +529,8 @@ end
 
 function mpc!(batch_solver::AbstractBatchMPCSolver)
     while true
-        MadNLP.print_iter(batch_solver)
         update_termination_criteria!(batch_solver)
+        MadNLP.print_iter(batch_solver)
         changed = update_termination_status!(batch_solver)
         if changed
             update_active_set!(batch_solver)
