@@ -216,7 +216,77 @@ function warmup(instance)
     return
 end
 
-function benchmark_dcopf(cases, batches)
+function analyze_instance(case, batches; tau=0.0, options...)
+    results = zeros(length(batches) + 1, 6)
+    # Load instance
+    base_qp, nbus = load_instance(case)
+    n = NLPModels.get_nvar(base_qp)
+    index = (n-nbus+1:n)
+
+    qp = MadIPM.standard_form_qp(scale_qp(base_qp))
+    # Load LPs in host memory
+    qps = build_dcopf_qps(qp, index, batches[end]; tau=tau)
+
+    # Time on the CPU
+    t_init_cpu = @elapsed begin
+        cpu_solver = MadIPM.MPCSolver(
+            qp;
+            linear_solver=Ma57Solver,
+            options...
+        )
+    end
+    stats = MadIPM.solve!(cpu_solver)
+    t_factorization_cpu = @elapsed begin
+        MadIPM.factorize_system!(cpu_solver)
+    end
+    t_iter_cpu = @elapsed begin
+        MadIPM.mpc_step!(cpu_solver)
+    end
+
+    results[1, 1] = 1
+    results[1, 2] = stats.iter
+    results[1, 3] = stats.counters.total_time
+    results[1, 4] = t_init_cpu
+    results[1, 5] = t_iter_cpu
+    results[1, 6] = t_factorization_cpu
+
+    for (k, nb) in enumerate(batches)
+        refresh_memory()
+
+        # Time on the GPU
+        cpu_bnlp = ObjRHSBatchQuadraticModel(qps[1:nb])
+        gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
+        t_init_gpu = CUDA.@elapsed begin
+            gpu_solver = MadIPM.UniformBatchMPCSolver(
+                gpu_bnlp;
+                uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
+                cudss_algorithm = MadNLP.LDL,
+                options...
+            )
+        end
+        # Solve problem
+        stats = MadIPM.solve!(gpu_solver)
+        # Time individual operations
+        # (need to reinitialize structure first to avoid masking side-effect)
+        MadIPM.initialize!(gpu_solver)
+        t_factorization_gpu = CUDA.@elapsed begin
+            MadIPM.factorize_system!(gpu_solver)
+        end
+        t_iter_gpu = CUDA.@elapsed begin
+            MadIPM.mpc_step!(gpu_solver)
+        end
+
+        results[k+1, 1] = nb
+        results[k+1, 2] = sum(stats.iter) / nb        # average
+        results[k+1, 3] = sum(stats.total_time) / nb  # average
+        results[k+1, 4] = t_init_gpu
+        results[k+1, 5] = t_iter_gpu
+        results[k+1, 6] = t_factorization_gpu
+    end
+    return results
+end
+
+function benchmark_dcopf(cases, batches; tau=0.1)
     m = 5 + 2*length(batches)
     shift1 = 5
     shift2 = shift1 + length(batches)
@@ -250,7 +320,7 @@ function benchmark_dcopf(cases, batches)
         results[k, 4] = stats.iter
         results[k, 5] = stats.counters.total_time
         # Launch on GPU (batch)
-        qps = build_dcopf_qps(qp, index, batches[end]; tau=0.0)
+        qps = build_dcopf_qps(qp, index, batches[end]; tau=tau)
         for (l, batch) in enumerate(batches)
             # Test pure scalability, do not change cost vector here.
             try
@@ -264,10 +334,7 @@ function benchmark_dcopf(cases, batches)
                     regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
                     uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
                     cudss_algorithm = MadNLP.LDL,
-                    # cudss_pivot_epsilon=1e-5,
-                    # cudss_ir=5,
                     scaling=false,
-                    # rethrow_error=true,
                 )
                 stats = MadIPM.solve!(gpu_solver)
                 println(stats.total_time)
@@ -282,6 +349,30 @@ function benchmark_dcopf(cases, batches)
     end
 
     return [cases results]
+end
+
+function decompose_timings()
+    warmup(WARMUP_INSTANCE)
+
+    batches = [2^i for i in 0:12]
+    for case in [
+        "case89pegase.m",
+        "case_ACTIVSg500.m",
+        "case1354pegase.m",
+        "case_ACTIVSg2000.m",
+        "case_ACTIVSg2000.m",
+        "case_ACTIVSg10k.m",
+    ]
+        results = analyze_instance(
+            case,
+            batches;
+            tol=1e-6,
+            regularization=MadIPM.FixedRegularization(1e-8, -1e-8),
+            max_iter=300,
+            scaling=false,
+        )
+        writedlm(joinpath("results", "3-decompose-dcopf-$(case).csv"), results)
+    end
 end
 
 function main()

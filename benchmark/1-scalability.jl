@@ -36,7 +36,6 @@ function select_netlib()
 end
 
 function benchmark_scalability(cases, batches)
-
     m = 5 + length(batches)
     results = zeros(length(cases), m)
 
