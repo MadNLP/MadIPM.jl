@@ -330,26 +330,26 @@ end
 
 # One iteration of Predictor-corrector method
 function mpc_step!(solver::MadNLP.AbstractMadNLPSolver)
-        # Factorize KKT system
-        factorize_system!(solver)
+    # Factorize KKT system
+    factorize_system!(solver)
 
-        # Prediction step
-        prediction_step!(solver)
+    # Prediction step
+    prediction_step!(solver)
 
-        # Mehrotra's Correction step
-        mehrotra_correction_direction!(solver)
+    # Mehrotra's Correction step
+    mehrotra_correction_direction!(solver)
 
-        # Gondzio's additional correction
-        gondzio_correction_direction!(solver)
+    # Gondzio's additional correction
+    gondzio_correction_direction!(solver)
 
-        # Update step size
-        update_step_size!(solver)
+    # Update step size
+    update_step_size!(solver)
 
-        # Apply step
-        apply_step!(solver)
+    # Apply step
+    apply_step!(solver)
 
-        # Evaluate model at new iterate
-        evaluate_model!(solver)
+    # Evaluate model at new iterate
+    evaluate_model!(solver)
 end
 
 function mpc!(solver::MadNLP.AbstractMadNLPSolver)
@@ -368,7 +368,6 @@ function solve!(
     kwargs...
 )
     nlp = solver.nlp
-    solver.cnt.start_time = time()
 
     if !isempty(kwargs)
         MadNLP.set_options!(solver.opt, kwargs)
