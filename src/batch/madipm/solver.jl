@@ -247,8 +247,6 @@ function initialize_solver_state!(batch_solver::AbstractBatchMPCSolver{T}) where
     fill!(ws.dual_obj, zero(T))
     fill!(ws.alpha_p, zero(T))
     fill!(ws.alpha_d, zero(T))
-    t_now = time()
-    batch_solver.batch_cnt.start_time[] = t_now
     fill!(batch_solver.batch_cnt.k, 0)
     batch_solver.batch_cnt.linear_solver_time[] = 0.0
     batch_solver.batch_cnt.eval_function_time[] = 0.0
@@ -529,8 +527,8 @@ end
 
 function mpc!(batch_solver::AbstractBatchMPCSolver)
     while true
-        MadNLP.print_iter(batch_solver)
         update_termination_criteria!(batch_solver)
+        MadNLP.print_iter(batch_solver)
         changed = update_termination_status!(batch_solver)
         if changed
             update_active_set!(batch_solver)

@@ -210,9 +210,9 @@ end
     @test sol.solution[3] == 2.0
 end
 
-# @testset "MathOptInterface" begin
-#     include("MOI_wrapper.jl")
-# end
+@testset "MathOptInterface" begin
+    include("MOI_wrapper.jl")
+end
 
 include("batch/views.jl")
 include("batch/solver.jl")

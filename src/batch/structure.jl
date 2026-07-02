@@ -163,6 +163,8 @@ function UniformBatchMPCSolver(
     logger = options.logger
 
     batch_cnt = BatchCounters(batch_size)
+    batch_cnt.start_time[] = time()
+
     bcb = MadNLP.create_callback(
         UniformBatchCallback{T,VT,MT,VI},
         bnlp;
@@ -214,6 +216,8 @@ function UniformBatchMPCSolver(
 
     batch_del_w = fill!(MT(undef, 1, batch_size), zero(T))
     batch_del_c = fill!(MT(undef, 1, batch_size), zero(T))
+
+    batch_cnt.init_time[] = time() - batch_cnt.start_time[]
 
     return UniformBatchMPCSolver{T, MT, VT, VI, typeof(bnlp), typeof(bcb), typeof(batch_views), typeof(batch_kkts)}(
         batch_size,
