@@ -1,7 +1,6 @@
 
 include("common.jl")
 
-CUDA.device!(0)
 
 const NETLIB_PATH = fetch_netlib()
 const MIPLIB_INSTANCES = "miplib_problems.txt"
@@ -78,10 +77,9 @@ end
     return MIPLIB.miplib2010(case)
 end
 
-function benchmark_lps(cases, batches, load_instance; bench_options...)
-    m = 5 + 2*length(batches)
-    shift1 = 5
-    shift2 = shift1 + length(batches)
+function benchmark_lps(cases, batches, load_instance; options...)
+    shift = 5
+    m = shift + 4*length(batches)
     results = zeros(length(cases), m)
 
     for (k, case) in enumerate(cases)
@@ -96,11 +94,8 @@ function benchmark_lps(cases, batches, load_instance; bench_options...)
         try
             cpu_solver = MadIPM.MPCSolver(
                 qp;
-                print_level=MadNLP.ERROR,
-                tol=1e-6,
-                max_iter=300,
-                regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
                 linear_solver=Ma27Solver,
+                options...
             )
             stats = MadIPM.solve!(cpu_solver)
             results[k, 4] = stats.iter
@@ -111,7 +106,7 @@ function benchmark_lps(cases, batches, load_instance; bench_options...)
             results[k, 5] = -1
         end
         # Launch on GPU (batch)
-        qps = build_qps(qp, batches[end]; bench_options...)
+        qps = build_qps(qp, batches[end])
         for (l, batch) in enumerate(batches)
             # Test pure scalability, do not change cost vector here.
             try
@@ -119,26 +114,26 @@ function benchmark_lps(cases, batches, load_instance; bench_options...)
                 gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
                 gpu_solver = MadIPM.UniformBatchMPCSolver(
                     gpu_bnlp;
-                    print_level=MadNLP.ERROR,
-                    max_iter=300,
-                    tol=1e-6,
-                    regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
                     uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
                     cudss_algorithm = MadNLP.LDL,
                     cudss_pivot_epsilon=1e-8,
+                    options...
                 )
                 stats = MadIPM.solve!(gpu_solver)
-                results[k, shift1+l] = sum(stats.iter) / batch
-                results[k, shift2+l] = sum(stats.total_time) / batch
+                has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), stats.status)
+                results[k, shift+4*(l-1)+1] = length(has_converged)
+                results[k, shift+4*(l-1)+2] = sum(stats.iter) / batch
+                results[k, shift+4*(l-1)+3] = sum(stats.batch_cnt.init_time) / batch
+                results[k, shift+4*(l-1)+4] = sum(stats.total_time) / batch
             catch ex
                 println("$(case) fails with message $(ex)")
-                results[k, shift1+l] = -1
-                results[k, shift2+l] = -1
-                refresh_memory()
+                results[k, shift+4*(l-1)+1] = -1
+                results[k, shift+4*(l-1)+2] = -1
+                results[k, shift+4*(l-1)+3] = -1
+                results[k, shift+4*(l-1)+4] = -1
             end
         end
     end
-
     return [cases results]
 end
 
@@ -149,11 +144,27 @@ function main()
     batches = [2^i for i in 0:7]
     if bench == :netlib
         cases = select_netlib_instance()
-        results = benchmark_lps(cases, batches, load_netlib_instance)
+        results = benchmark_lps(
+            cases,
+            batches,
+            load_netlib_instance;
+            print_level=MadNLP.ERROR,
+            tol=1e-6,
+            max_iter=300,
+            regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
+        )
         writedlm(joinpath("results", "2-benchmark-netlib.csv"), results)
     elseif bench == :miplib
         cases = select_miplib_instance()
-        results = benchmark_lps(cases, batches, load_miplib_instance)
+        results = benchmark_lps(
+            cases,
+            batches,
+            load_miplib_instance;
+            print_level=MadNLP.ERROR,
+            tol=1e-6,
+            max_iter=300,
+            regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
+        )
         writedlm(joinpath("results", "2-benchmark-miplib.csv"), results)
     end
     return

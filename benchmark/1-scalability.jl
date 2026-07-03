@@ -1,7 +1,6 @@
 
 include("common.jl")
 
-CUDA.device!(1)
 
 const NETLIB_PATH = fetch_netlib()
 const NNZJ_THRESHOLD = 5_000
@@ -35,8 +34,9 @@ function select_netlib()
     return selected
 end
 
-function benchmark_scalability(cases, batches)
-    m = 5 + length(batches)
+function benchmark_scalability(cases, batches; options...)
+    shift = 5
+    m = shift + 4*length(batches)
     results = zeros(length(cases), m)
 
     for (k, case) in enumerate(cases)
@@ -46,11 +46,8 @@ function benchmark_scalability(cases, batches)
         qp = load_instance(case)
         cpu_solver = MadIPM.MPCSolver(
             qp;
-            print_level=MadNLP.ERROR,
-            max_iter=500,
-            tol=1e-6,
-            regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
             linear_solver=Ma57Solver,
+            options...
         )
         stats = MadIPM.solve!(cpu_solver)
         results[k, 1] = NLPModels.get_nvar(qp)
@@ -66,16 +63,18 @@ function benchmark_scalability(cases, batches)
             gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
             gpu_solver = MadIPM.UniformBatchMPCSolver(
                 gpu_bnlp;
-                print_level=MadNLP.ERROR,
-                tol=1e-6,
-                max_iter=500,
-                regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
                 uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
                 cudss_algorithm = MadNLP.LDL,
                 cudss_pivot_epsilon=1e-8,
+                options...
             )
             stats = MadIPM.solve!(gpu_solver)
-            results[k, 5+l] = sum(stats.total_time) / batch
+            has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), stats.status)
+
+            results[k, shift+4*(l-1)+1] = length(has_converged)
+            results[k, shift+4*(l-1)+2] = sum(stats.iter) / batch
+            results[k, shift+4*(l-1)+3] = sum(stats.batch_cnt.init_time) / batch
+            results[k, shift+4*(l-1)+4] = sum(stats.total_time) / batch
         end
     end
 
@@ -89,7 +88,14 @@ function main()
     batches = [2^i for i in 0:12]
     cases = select_netlib()
     @info "#instances: $(length(cases))"
-    results = benchmark_scalability(cases, batches)
+    results = benchmark_scalability(
+        cases,
+        batches;
+        print_level=MadNLP.ERROR,
+        tol=1e-6,
+        max_iter=500,
+        regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
+    )
     writedlm(joinpath("results", "1-scalability-netlib.csv"), results)
 end
 
