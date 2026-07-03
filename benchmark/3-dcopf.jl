@@ -3,6 +3,7 @@ include("common.jl")
 
 using JuMP
 using PowerModels
+using Statistics
 
 PowerModels.silence()
 
@@ -286,6 +287,51 @@ function analyze_instance(case, batches; tau=0.0, options...)
     return results
 end
 
+function solve_batch_dcopf(cases, nbatch, tau; options...)
+    results = zeros(length(cases), 8)
+
+    for (k, case) in enumerate(cases)
+        refresh_memory()
+        base_qp, nbus = load_instance(case)
+        n = NLPModels.get_nvar(base_qp)
+        index = (n-nbus+1:n)
+
+        qp = MadIPM.standard_form_qp(scale_qp(base_qp))
+        # Load LPs in host memory
+        qps = build_dcopf_qps(qp, index, nbatch; tau=tau)
+
+        # CPU
+        stats_cpu = madipm.(qps; linear_solver=Ma57Solver, options...)
+
+        status = [s.status for s in stats_cpu]
+        iters = [s.iter for s in stats_cpu]
+        has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), status)
+        results[k, 1] = length(has_converged)
+        results[k, 2] = mean(iters[has_converged])
+        results[k, 3] = std(iters[has_converged])
+        results[k, 4] = sum([s.counter.total_time for s in stats_cpu[has_converged]])
+
+        # GPU
+        cpu_bnlp = ObjRHSBatchQuadraticModel(qps)
+        gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
+        gpu_solver = MadIPM.UniformBatchMPCSolver(
+            gpu_bnlp;
+            uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
+            cudss_algorithm = MadNLP.LDL,
+            options...
+        )
+        # Solve problem
+        stats_gpu = MadIPM.solve!(gpu_solver)
+        has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), stats.status)
+        results[k, 5] = length(has_converged)
+        results[k, 6] = mean(stats.iter[has_converged])
+        results[k, 7] = std(stats.iter[has_converged])
+        results[k, 8] = sum(stats.total_time[has_converged]) / nbatch
+    end
+
+    return [cases results]
+end
+
 function benchmark_dcopf(cases, batches; tau=0.1)
     m = 5 + 2*length(batches)
     shift1 = 5
@@ -379,11 +425,29 @@ function main()
     @info "Warmup"
     warmup(WARMUP_INSTANCE)
 
-    batches = [2^i for i in 0:4]
+    work = :benchmark
     cases = select_dcopf_instances()
-    @info "#instances: $(length(cases))"
-    results = benchmark_dcopf(cases, batches)
-    writedlm(joinpath("results", "3-benchmark-dcopf.csv"), results)
+
+    if work == :benchmark
+        batches = [2^i for i in 0:4]
+        @info "#instances: $(length(cases))"
+        results = benchmark_dcopf(cases, batches)
+        writedlm(joinpath("results", "3-benchmark-dcopf.csv"), results)
+    elseif work == :comp
+        nbatch = 64
+        for tau ∈ [0.0, 0.1, 0.2, 0.3, 0.4]
+            results = solve_batch_dcopf(
+                cases,
+                nbatch,
+                tau;
+                tol=1e-6,
+                regularization=MadIPM.FixedRegularization(1e-8, -1e-8),
+                max_iter=300,
+                scaling=false,
+            )
+            writedlm(joinpath("results", "3-benchmark-batch-$(tau).csv"), results)
+        end
+    end
 end
 
 main()
