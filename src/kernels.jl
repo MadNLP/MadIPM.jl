@@ -1,6 +1,6 @@
-function set_initial_primal_rhs!(solver::MadNLP.AbstractMadNLPSolver)
+function set_initial_primal_rhs!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
     p = solver.p
-    fill!(full(p), 0.0)
+    fill!(full(p), zero(T))
     py = MadNLP.dual(p)
     b = solver.c
 
@@ -8,9 +8,9 @@ function set_initial_primal_rhs!(solver::MadNLP.AbstractMadNLPSolver)
     return
 end
 
-function set_initial_dual_rhs!(solver::MadNLP.AbstractMadNLPSolver)
+function set_initial_dual_rhs!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
     p = solver.p
-    fill!(full(p), 0.0)
+    fill!(full(p), zero(T))
     px = MadNLP.primal(p)
     c = MadNLP.primal(solver.f)
 
@@ -18,7 +18,7 @@ function set_initial_dual_rhs!(solver::MadNLP.AbstractMadNLPSolver)
     return
 end
 
-function set_predictive_rhs!(solver::MadNLP.AbstractMadNLPSolver, kkt::MadNLP.AbstractKKTSystem)
+function set_predictive_rhs!(solver::MadNLP.AbstractMadNLPSolver{T}, kkt::MadNLP.AbstractKKTSystem{T}) where T
     # RHS
     px = MadNLP.primal(solver.p)
     py = MadNLP.dual(solver.p)
@@ -31,7 +31,7 @@ function set_predictive_rhs!(solver::MadNLP.AbstractMadNLPSolver, kkt::MadNLP.Ab
     # Constraint
     c = solver.c
 
-    fill!(MadNLP.full(solver.p), 0.0)
+    fill!(MadNLP.full(solver.p), zero(T))
 
     px  .= .-f .+ zl .- zu .- solver.jacl
     py  .= .-c
@@ -40,7 +40,7 @@ function set_predictive_rhs!(solver::MadNLP.AbstractMadNLPSolver, kkt::MadNLP.Ab
     return
 end
 
-function set_correction_rhs!(solver::MadNLP.AbstractMadNLPSolver, kkt::MadNLP.AbstractKKTSystem, mu::Float64, correction_lb::AbstractVector{Float64}, correction_ub::AbstractVector{Float64}, ind_lb, ind_ub)
+function set_correction_rhs!(solver::MadNLP.AbstractMadNLPSolver, kkt::MadNLP.AbstractKKTSystem, mu::T, correction_lb::AbstractVector{T}, correction_ub::AbstractVector{T}, ind_lb, ind_ub) where T
     px = MadNLP.primal(solver.p)
     py = MadNLP.dual(solver.p)
     pzl = MadNLP.dual_lb(solver.p)
@@ -72,10 +72,10 @@ end
 
 # Gondzio's multi-correction scheme
 function set_extra_correction!(
-    solver::MadNLP.AbstractMadNLPSolver,
+    solver::MadNLP.AbstractMadNLPSolver{T},
     correction_lb, correction_ub,
     alpha_p, alpha_d, βmin, βmax, μ,
-)
+) where T
     dlb = MadNLP.dual_lb(solver.d)
     dub = MadNLP.dual_ub(solver.d)
     tmin, tmax = βmin * μ, βmax * μ
@@ -91,7 +91,7 @@ function set_extra_correction!(
             elseif v > tmax
                 tmax - v
             else
-                0.0
+                zero(T)
             end
             corr - δ
         end,
@@ -110,7 +110,7 @@ function set_extra_correction!(
             elseif v > tmax
                 tmax - v
             else
-                0.0
+                zero(T)
             end
             corr + δ
         end,
@@ -174,10 +174,10 @@ end
     Barrier
 =#
 
-function get_complementarity_measure(solver::MadNLP.AbstractMadNLPSolver)
+function get_complementarity_measure(solver::MadNLP.AbstractMadNLPSolver{T}) where T
     m1, m2 = length(solver.x_lr), length(solver.x_ur)
     if m1 + m2 == 0
-        return 0.0
+        return zero(T)
     else
         inf_compl_l = mapreduce(
             (x_lr, xl_r, zl_r) -> (x_lr - xl_r) * zl_r,
@@ -195,10 +195,10 @@ function get_complementarity_measure(solver::MadNLP.AbstractMadNLPSolver)
     end
 end
 
-function get_affine_complementarity_measure(solver::MadNLP.AbstractMadNLPSolver, alpha_p, alpha_d)
+function get_affine_complementarity_measure(solver::MadNLP.AbstractMadNLPSolver{T}, alpha_p, alpha_d) where T
     m1, m2 = length(solver.x_lr), length(solver.x_ur)
     if m1 + m2 == 0
-        return 0.0
+        return zero(T)
     else
         dzlb = MadNLP.dual_lb(solver.d)
         dzub = MadNLP.dual_ub(solver.d)
@@ -327,9 +327,9 @@ end
 
 # Implement Mehrotra's heuristic to compute the step : see Procedure GTSF (Exhibit 6.1) in
 # "On The Implementation Of A Primal-Dual Interior Point Method"
-function update_step!(rule::MehrotraAdaptiveStep, solver)
-    gamma_a = 1.0 / (1.0 - rule.gamma_f)
-    tau = 1.0
+function update_step!(rule::MehrotraAdaptiveStep, solver::MPCSolver{T}) where T
+    gamma_a = one(T) / (one(T) - rule.gamma_f)
+    tau = one(T)
 
     d_zl = MadNLP.dual_lb(solver.d)
     d_zu = MadNLP.dual_ub(solver.d)
@@ -349,11 +349,11 @@ function update_step!(rule::MehrotraAdaptiveStep, solver)
     mu_full = get_affine_complementarity_measure(solver, max_alpha_p, max_alpha_d)
     mu_full /= gamma_a
 
-    alpha_p, alpha_d = 1.0, 1.0
+    alpha_p, alpha_d = one(T), one(T)
 
     # Require CUDA.jl as a dependency of MadIPM.jl
     # CUDA.@allowscalar begin
-    if max_alpha_p < 1.0
+    if max_alpha_p < one(T)
         if alpha_xl <= alpha_xu
             tmp = mu_full / (solver.zl_r[i_xl] + max_alpha_d * d_zl[i_xl])
             alpha_p = (solver.x_lr[i_xl] - solver.xl_r[i_xl] - tmp) / (-solver.dx_lr[i_xl])
@@ -362,7 +362,7 @@ function update_step!(rule::MehrotraAdaptiveStep, solver)
             alpha_p = (solver.xu_r[i_xu] - solver.x_ur[i_xu] - tmp) / (solver.dx_ur[i_xu])
         end
     end
-    if max_alpha_d < 1.0
+    if max_alpha_d < one(T)
         if alpha_zl <= alpha_zu
             tmp = mu_full / (solver.x_lr[i_zl] + max_alpha_p * solver.dx_lr[i_zl] - solver.xl_r[i_zl])
             alpha_d = -(solver.zl_r[i_zl] - tmp) / d_zl[i_zl]
@@ -382,20 +382,20 @@ end
     Regularization
 =#
 
-function init_regularization!(solver::MPCSolver, ::NoRegularization)
-    solver.del_w = 1.0
-    solver.del_c = 0.0
+function init_regularization!(solver::MPCSolver{T}, ::NoRegularization) where T
+    solver.del_w = one(T)
+    solver.del_c = zero(T)
     return
 end
 
-function update_regularization!(solver::MPCSolver, ::NoRegularization)
-    solver.del_w = 0.0
-    solver.del_c = 0.0
+function update_regularization!(solver::MPCSolver{T}, ::NoRegularization) where T
+    solver.del_w = zero(T)
+    solver.del_c = zero(T)
     return
 end
 
-function init_regularization!(solver::MPCSolver, reg::FixedRegularization)
-    solver.del_w = 1.0
+function init_regularization!(solver::MPCSolver{T}, reg::FixedRegularization) where T
+    solver.del_w = one(T)
     solver.del_c = reg.delta_d
     return
 end
@@ -406,16 +406,16 @@ function update_regularization!(solver::MPCSolver, reg::FixedRegularization)
     return
 end
 
-function init_regularization!(solver::MPCSolver, reg::AdaptiveRegularization)
-    solver.del_w = 1.0
+function init_regularization!(solver::MPCSolver{T}, reg::AdaptiveRegularization) where T
+    solver.del_w = one(T)
     solver.del_c = reg.delta_d
     return
 end
 
-function update_regularization!(solver::MPCSolver, reg::AdaptiveRegularization)
-    reg.delta_p = max(reg.delta_p / 10.0, reg.delta_min)
+function update_regularization!(solver::MPCSolver{T}, reg::AdaptiveRegularization) where T
+    reg.delta_p = max(reg.delta_p / T(10.0), reg.delta_min)
     # Dual regularization is negative!
-    reg.delta_d = min(reg.delta_d / 10.0, -reg.delta_min)
+    reg.delta_d = min(reg.delta_d / T(10.0), -reg.delta_min)
     solver.del_w = reg.delta_p
     solver.del_c = reg.delta_d
     return
@@ -437,7 +437,7 @@ function dual_objective(solver::MPCSolver)
     return dobj
 end
 
-function get_optimality_gap(solver::MPCSolver)
+function get_optimality_gap(solver::MPCSolver{T}) where T
     return MadNLP.get_inf_compl(
         solver.x_lr,
         solver.xl_r,
@@ -445,7 +445,7 @@ function get_optimality_gap(solver::MPCSolver)
         solver.xu_r,
         solver.x_ur,
         solver.zu_r,
-        0.,
-        1.0,
+        zero(T),
+        one(T),
     )
 end

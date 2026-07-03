@@ -5,6 +5,7 @@ using CodecBzip2
 using HSL
 using NLPModels
 using SparseArrays
+using Quadmath
 
 import QuadraticModels: SparseMatrixCOO
 
@@ -43,28 +44,16 @@ function _scale_coo!(A, Dr, Dc)
     end
 end
 
-"""
-    scale_qp(qp::QuadraticModel)
-
-Scale QP using Ruiz' equilibration method.
-
-The function scales the Jacobian ``A`` as ``As = Dr * A * Dc``, with ``As``
-a matrix whose rows and columns have an infinite norm close to 1.
-
-The scaling is computed using `HSL.mc77`, implementing the Ruiz equilibration method.
-
-"""
-function scale_qp(qp::QuadraticModel)
-    A = qp.data.A
-    m, n = size(A)
-
-    if !LIBHSL_isfunctional()
-        return qp
+function presolve(qp; max_iter=3)
+    pqp = qp
+    for i in 1:max_iter
+        println(NLPModels.get_nvar(pqp))
+        pqp = MadIPM.presolve_qp(pqp)[1]
     end
+    return pqp
+end
 
-    A_csc = sparse(A.rows, A.cols, A.vals, m, n)
-    Dr, Dc = HSL.mc77(A_csc, 0)
-
+function _scale_qp(qp::QuadraticModel, Dr, Dc)
     Hs = copy(qp.data.H)
     As = copy(qp.data.A)
     _scale_coo!(Hs, Dc, Dc)
@@ -73,7 +62,6 @@ function scale_qp(qp::QuadraticModel)
     data = QuadraticModels.QPData(
         qp.data.c0,
         qp.data.c ./ Dc,
-        qp.data.v,
         Hs,
         As,
     )
@@ -98,4 +86,58 @@ function scale_qp(qp::QuadraticModel)
         data,
     )
 end
+
+"""
+    scale_qp(qp::QuadraticModel)
+
+Scale QP using Ruiz' equilibration method.
+
+The function scales the Jacobian ``A`` as ``As = Dr * A * Dc``, with ``As``
+a matrix whose rows and columns have an infinite norm close to 1.
+
+The scaling is computed using `HSL.mc77`, implementing the Ruiz equilibration method.
+
+"""
+function scale_qp(qp::QuadraticModel)
+    A = qp.data.A
+    m, n = size(A)
+
+    if !LIBHSL_isfunctional()
+        return qp
+    end
+
+    A_csc = sparse(A.rows, A.cols, A.vals, m, n)
+    Dr, Dc = HSL.mc77(A_csc, 0)
+
+    return _scale_qp(qp, Dr, Dc)
+end
+
+function convert_qp(qp::QuadraticModel, T::Type{<:AbstractFloat})
+    data = QuadraticModels.QPData(
+        T(qp.data.c0),
+        convert(Vector{T}, qp.data.c),
+        convert(SparseMatrixCOO{T, Int}, qp.data.H),
+        convert(SparseMatrixCOO{T, Int}, qp.data.A),
+    )
+    return QuadraticModel(
+        NLPModelMeta(
+            qp.meta.nvar;
+            ncon=qp.meta.ncon,
+            lvar=convert(Vector{T}, qp.meta.lvar),
+            uvar=convert(Vector{T}, qp.meta.uvar),
+            lcon=convert(Vector{T}, qp.meta.lcon),
+            ucon=convert(Vector{T}, qp.meta.ucon),
+            x0=convert(Vector{T}, qp.meta.x0),
+            y0=convert(Vector{T}, qp.meta.y0),
+            nnzj=qp.meta.nnzj,
+            lin_nnzj=qp.meta.nnzj,
+            lin=qp.meta.lin,
+            nnzh=qp.meta.nnzh,
+            minimize=qp.meta.minimize,
+        ),
+        Counters(),
+        data,
+    )
+end
+
 
