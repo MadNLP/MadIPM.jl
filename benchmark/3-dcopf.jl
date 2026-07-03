@@ -1,6 +1,8 @@
 
 include("common.jl")
 
+CUDA.device!(1)
+
 using JuMP
 using PowerModels
 using Statistics
@@ -108,7 +110,7 @@ function dcopf_model(data)
     @objective(model, Min,
         sum(gen["cost"][2]*pg[i] + gen["cost"][3] for (i,gen) in ref[:gen]) +
         sum(dcline["cost"][2]*p_dc[from_idx[i]] + dcline["cost"][3] for (i,dcline) in ref[:dcline]) +
-        1e8 * sum(sigmap[i] + sigman[i] for i in keys(ref[:bus]))
+        1e6 * sum(sigmap[i] + sigman[i] for i in keys(ref[:bus]))
     )
 
     # Fix the voltage angle to zero at the reference bus
@@ -291,6 +293,7 @@ function solve_batch_dcopf(cases, nbatch, tau; options...)
     results = zeros(length(cases), 8)
 
     for (k, case) in enumerate(cases)
+        @info case
         refresh_memory()
         base_qp, nbus = load_instance(case)
         n = NLPModels.get_nvar(base_qp)
@@ -309,7 +312,7 @@ function solve_batch_dcopf(cases, nbatch, tau; options...)
         results[k, 1] = length(has_converged)
         results[k, 2] = mean(iters[has_converged])
         results[k, 3] = std(iters[has_converged])
-        results[k, 4] = sum([s.counter.total_time for s in stats_cpu[has_converged]])
+        results[k, 4] = sum([s.counters.total_time for s in stats_cpu[has_converged]])
 
         # GPU
         cpu_bnlp = ObjRHSBatchQuadraticModel(qps)
@@ -322,11 +325,11 @@ function solve_batch_dcopf(cases, nbatch, tau; options...)
         )
         # Solve problem
         stats_gpu = MadIPM.solve!(gpu_solver)
-        has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), stats.status)
+        has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), stats_gpu.status)
         results[k, 5] = length(has_converged)
-        results[k, 6] = mean(stats.iter[has_converged])
-        results[k, 7] = std(stats.iter[has_converged])
-        results[k, 8] = sum(stats.total_time[has_converged]) / nbatch
+        results[k, 6] = mean(stats_gpu.iter[has_converged])
+        results[k, 7] = std(stats_gpu.iter[has_converged])
+        results[k, 8] = sum(stats_gpu.total_time[has_converged]) / nbatch
     end
 
     return [cases results]
@@ -400,15 +403,14 @@ end
 function decompose_timings()
     warmup(WARMUP_INSTANCE)
 
-    batches = [2^i for i in 0:12]
-    for case in [
-        "case89pegase.m",
-        "case_ACTIVSg500.m",
-        "case1354pegase.m",
-        "case_ACTIVSg2000.m",
-        "case_ACTIVSg2000.m",
-        "case_ACTIVSg10k.m",
+    for (case, batches) in [
+        ("case89pegase.m", [2^i for i in 0:12]),
+        ("case1354pegase.m", [2^i for i in 0:10]),
+        ("case_ACTIVSg2000.m", [2^i for i in 0:10]),
+        ("case6515rte.m", [2^i for i in 0:8]),
+        ("case_ACTIVSg10k.m", [2^i for i in 0:8]),
     ]
+        @info case
         results = analyze_instance(
             case,
             batches;
@@ -425,7 +427,7 @@ function main()
     @info "Warmup"
     warmup(WARMUP_INSTANCE)
 
-    work = :benchmark
+    work = :comp
     cases = select_dcopf_instances()
 
     if work == :benchmark
@@ -436,6 +438,7 @@ function main()
     elseif work == :comp
         nbatch = 64
         for tau ∈ [0.0, 0.1, 0.2, 0.3, 0.4]
+            @info "\n$(tau)"
             results = solve_batch_dcopf(
                 cases,
                 nbatch,
@@ -444,6 +447,7 @@ function main()
                 regularization=MadIPM.FixedRegularization(1e-8, -1e-8),
                 max_iter=300,
                 scaling=false,
+                print_level=MadNLP.ERROR,
             )
             writedlm(joinpath("results", "3-benchmark-batch-$(tau).csv"), results)
         end

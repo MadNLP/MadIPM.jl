@@ -1,7 +1,7 @@
 
 include("common.jl")
 
-CUDA.device!(1)
+CUDA.device!(0)
 
 const NETLIB_PATH = fetch_netlib()
 const MIPLIB_INSTANCES = "miplib_problems.txt"
@@ -146,7 +146,7 @@ function main()
     @info "Warmup"
     bench = :miplib
     _warmup(load_netlib_instance(WARMUP_INSTANCE))
-    batches = [1, 2, 4, 8]
+    batches = [2^i for i in 0:7]
     if bench == :netlib
         cases = select_netlib_instance()
         results = benchmark_lps(cases, batches, load_netlib_instance)
