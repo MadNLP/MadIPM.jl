@@ -240,6 +240,8 @@ function MadNLP.eval_jac_wrapper!(
     if n_slack > 0
         view(nzVals, jac_offset+nnzj+1:jac_offset+nnzj+n_slack, :) .= -one(eltype(nzVals))
     end
+    sync_batch_operator!(bkkt.j_op)
+    sync_batch_operator!(bkkt.jt_op)
     return
 end
 
@@ -259,6 +261,7 @@ function MadNLP.eval_lag_hess_wrapper!(
         bf_mat = reshape(ws.bf, 1, batch_solver.batch_size)
         @. bf_mat = bcb.obj_sign * bcb.obj_scale
         MadNLP._eval_lag_hess_wrapper!(bcb, ws.bx, MadNLP.full(batch_solver.y), ws.bv, hess; obj_weight=ws.bf)
+        sync_batch_operator!(bkkt.hess_op)
     end
     return
 end

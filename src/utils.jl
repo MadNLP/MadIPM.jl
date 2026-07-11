@@ -312,33 +312,31 @@ _rowval(A::SparseArrays.SparseMatrixCSC) = A.rowval
 _nzval(A::SparseArrays.SparseMatrixCSC) = A.nzval
 
 #=
-    QuadraticModels wrapper
+    Vendored model wrappers (see src/models/)
 =#
 
-"""
-    presolved_qp, flag = presolve_qp(qp::QuadraticModel)
+const _BQMScalarModel = Union{LinearModel, QuadraticModel}
 
-Run basic presolve routines implemented in `QuadraticModels.presolve` and return
-a new QuadraticModel if flag is `true`.
-
-If `flag` is `false`, the initial `qp` is returned.
 """
-function presolve_qp(qp::QuadraticModels.QuadraticModel)
-    # Use routine implemented in QuadraticModels
-    res = QuadraticModels.presolve(qp)
-    qp_presolved = res.solver_specific[:presolvedQM]
-    if qp_presolved != nothing
-        new_qp = QuadraticModels.QuadraticModel(
-            qp_presolved.meta,
-            qp_presolved.counters,
-            qp_presolved.data,
-        )
-        resize!(new_qp.data.v, NLPModels.get_nvar(new_qp))
-        return new_qp, true
-    else
-        # unbounded, infeasible or nvarps == 0
-        return qp, false
-    end
+    model, status = presolve_qp(qp; presolver = BasicPresolver())
+
+Run a presolve pass on `qp`. Always returns a model the caller can hand to the
+IPM together with the [`PresolveStatus`](@ref):
+
+- `PRESOLVE_REDUCED`     — `model` is the reduced QP/LP.
+- `PRESOLVE_UNCHANGED`   — `model` is the original `qp` (presolver found nothing
+                            to reduce; still solvable).
+- `PRESOLVE_INFEASIBLE` / `PRESOLVE_UNBOUNDED` / `PRESOLVE_SOLVED` /
+  `PRESOLVE_UNBOUNDED_OR_INFEASIBLE` — caller should skip the IPM solve;
+  `model` is the original `qp`.
+
+`presolver` defaults to `BasicPresolver` (pure-Julia: fixed variables,
+singleton/empty/free rows, empty columns, free singleton columns).
+"""
+function presolve_qp(qp::_BQMScalarModel; presolver::AbstractPresolver = BasicPresolver())
+    status, res = apply_presolve(presolver, qp)
+    model = status == PRESOLVE_REDUCED ? res.reduced_model::typeof(qp) : qp
+    return model, status
 end
 
 """
@@ -369,7 +367,8 @@ min_{x,s,w}  c'x
 ```
 Equality constraints are preserved as-is.
 """
-function standard_form_qp(qp::QuadraticModels.QuadraticModel)
+function standard_form_qp(qp::_BQMScalarModel)
+    T = eltype(qp.data.c)
     n = NLPModels.get_nvar(qp)
     m = NLPModels.get_ncon(qp)
 
@@ -419,9 +418,7 @@ function standard_form_qp(qp::QuadraticModels.QuadraticModel)
     nvar = n + ns + nw
     ncon = m + nw
 
-    # Build A and H
-    Hs = SparseMatrixCOO(nvar, nvar, qp.data.H.rows, qp.data.H.cols, qp.data.H.vals)
-
+    # Build A
     Ai, Aj, Ax = SparseArrays.findnz(qp.data.A)
     Bi, Bj, Bx = similar(Ai, ns+2*nw), similar(Aj, ns+2nw), similar(Ax, ns+2*nw)
 
@@ -474,30 +471,21 @@ function standard_form_qp(qp::QuadraticModels.QuadraticModel)
     # Keep fixed variables in the formulation
     uvar_[ind_fixed] .= uvar[ind_fixed]
 
-    data = QuadraticModels.QPData(
-        qp.data.c0,
-        [qp.data.c; zeros(ns + nw)],
-        Hs,
-        As,
-    )
+    c_  = vcat(qp.data.c, zeros(T, ns + nw))
+    x0_ = vcat(qp.meta.x0, zeros(T, ns + nw))
+    y0_ = vcat(qp.meta.y0, zeros(T, nw))
+    c0  = @inbounds qp.data.c0[1]
 
-    return QuadraticModels.QuadraticModel(
-        NLPModels.NLPModelMeta(
-            nvar;
-            ncon=ncon,
-            lvar=lvar_,
-            uvar=uvar_,
-            lcon=lcon_,
-            ucon=ucon_,
-            x0=[qp.meta.x0; zeros(ns + nw)],
-            y0=[qp.meta.y0; zeros(nw)],
-            nnzj=qp.meta.nnzj + ns + 2*nw,
-            lin_nnzj=qp.meta.nnzj + ns + 2*nw,
-            lin=[qp.meta.lin; (m+1:m+nw)],
-            nnzh=qp.meta.nnzh,
-            minimize=qp.meta.minimize,
-        ),
-        NLPModels.Counters(),
-        data,
-    )
+    if qp isa QuadraticModel
+        Q_src = operator_sparse_matrix(qp.data.Q)
+        Qi, Qj, Qx = SparseArrays.findnz(Q_src)
+        Qs = SparseMatrixCOO(nvar, nvar, Qi, Qj, Qx)
+        data = QPData(As, c_, Qs;
+            lvar = lvar_, uvar = uvar_, lcon = lcon_, ucon = ucon_, c0 = c0)
+        return QuadraticModel(data; x0 = x0_, y0 = y0_, minimize = qp.meta.minimize, name = qp.meta.name)
+    else
+        data = LPData(As, c_;
+            lvar = lvar_, uvar = uvar_, lcon = lcon_, ucon = ucon_, c0 = c0)
+        return LinearModel(data; x0 = x0_, y0 = y0_, minimize = qp.meta.minimize, name = qp.meta.name)
+    end
 end

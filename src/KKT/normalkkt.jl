@@ -140,7 +140,7 @@ end
 
 MadNLP.num_variables(kkt::NormalKKTSystem) = length(kkt.pr_diag)
 MadNLP.get_jacobian(kkt::NormalKKTSystem) = kkt.jac
-MadNLP.get_hessian(kkt::NormalKKTSystem) = Float64[]
+MadNLP.get_hessian(kkt::NormalKKTSystem) = similar(kkt.pr_diag, 0)
 
 function MadNLP.is_inertia_correct(kkt::NormalKKTSystem, num_pos, num_zero, num_neg)
     return (num_zero == 0) && (num_pos == kkt.m)

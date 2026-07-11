@@ -1,4 +1,4 @@
-using BatchQuadraticModels: ObjRHSBatchQuadraticModel, BatchQuadraticModel
+using MadIPM.Models: ObjRHSBatchQuadraticModel, BatchQuadraticModel
 using LinearAlgebra
 using SparseArrays
 
@@ -513,6 +513,39 @@ end
     MadNLP.factorize_kkt!(solver.kkt)
     MadNLP.solve_kkt!(solver.kkt, solver)
     @test pd[:,2] == pd_before[:,2]
+end
+
+
+_lin(c, Avals) = LinearModel(
+    LPData(SparseMatrixCOO(1, 2, [1, 1], [1, 2], Avals), c;
+        lcon=[1.0], ucon=[1.0], lvar=[0.0, 0.0], uvar=[Inf, Inf]);
+    x0=ones(2))
+
+@testset "BatchLinearModel shared A" begin
+    lps = [_lin([1.0, 1.0 + 0.1i], [1.0, 1.0]) for i in 1:3]
+    bnlp = ObjRHSBatchLinearModel(lps)
+    @test bnlp.A isa MadIPM.Models.SparseOperator
+    stats = MadIPM.madipm_batch(bnlp; print_level=MadNLP.ERROR, rethrow_error=true)
+    for (i, lp) in enumerate(lps)
+        ref = MadIPM.madipm(lp; print_level=MadNLP.ERROR)
+        @test stats[i].status == MadNLP.SOLVE_SUCCEEDED
+        @test stats[i].objective ≈ ref.objective atol=1e-6
+        @test stats[i].solution ≈ ref.solution atol=1e-6
+    end
+end
+
+@testset "BatchLinearModel per-instance A" begin
+    lps = [_lin([1.0, 1.0], [1.0, 1.0 + 0.2i]) for i in 1:3]
+    bnlp = batch_model(lps)
+    @test bnlp isa MadIPM.Models.UniformBatchLinearModel
+    @test bnlp.A isa MadIPM.Models.BatchSparseOperator
+    stats = MadIPM.madipm_batch(bnlp; print_level=MadNLP.ERROR, rethrow_error=true)
+    for (i, lp) in enumerate(lps)
+        ref = MadIPM.madipm(lp; print_level=MadNLP.ERROR)
+        @test stats[i].status == MadNLP.SOLVE_SUCCEEDED
+        @test stats[i].objective ≈ ref.objective atol=1e-6
+        @test stats[i].solution ≈ ref.solution atol=1e-6
+    end
 end
 
 end

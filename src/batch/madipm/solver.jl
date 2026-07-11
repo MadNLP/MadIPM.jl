@@ -546,7 +546,7 @@ function solve!(batch_solver::AbstractBatchMPCSolver{T, MT, VT}) where {T, MT, V
 
     nvar_nlp = bcb.nlp.meta.nvar
     ncon = bcb.ncon
-    stats = BatchExecutionStats(MT, VT, nvar_nlp, ncon, bs)
+    stats = BatchExecutionStats(MT, VT, nvar_nlp, ncon, bs, batch_solver.batch_cnt)
 
     try
         MadNLP.@notice(batch_solver.logger, "MadIPM batch solve ($bs problems)\n")

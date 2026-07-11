@@ -15,13 +15,13 @@ function zero_inactive_step!(batch_solver::AbstractBatchMPCSolver{T}) where T
 end
 
 function _build_batch_op(nzVals, nz_map, val_map, coo_I, nrows)
-    rowptr, colidx = BatchQuadraticModels._coo_to_csr(Vector{Int}(coo_I), nrows)
-    return BatchQuadraticModels._build_storage_op(
-        nzVals,
-        rowptr,
-        Vector{Int}(nz_map),
-        Vector{Int}(val_map),
-        colidx,
+    rows = Vector{Int}(coo_I)
+    cols = Vector{Int}(val_map)
+    nzm  = Vector{Int}(nz_map)
+    rowptr, colidx = Models._coo_to_csr(rows, nrows)
+    return Models._build_op(
+        nzVals, rows, cols, rowptr,
+        nzm, cols, colidx,
     )
 end
 
@@ -100,6 +100,19 @@ function BatchVector(
     return BatchVector{T, MT}(values)
 end
 
+struct BatchCounters
+    k::Vector{Int}              # per-instance iteration count
+    start_time::Base.RefValue{Float64}
+    init_time::Base.RefValue{Float64}
+    total_time::Vector{Float64} # per-instance total solve time
+    linear_solver_time::Base.RefValue{Float64}
+    eval_function_time::Base.RefValue{Float64}
+    obj_cnt::Base.RefValue{Int}
+    obj_grad_cnt::Base.RefValue{Int}
+    con_cnt::Base.RefValue{Int}
+end
+BatchCounters(batch_size::Int) = BatchCounters(zeros(Int, batch_size), Ref(0.0), Ref(0.0), zeros(Float64, batch_size), Ref(0.0), Ref(0.0), Ref(0), Ref(0), Ref(0))
+
 mutable struct BatchExecutionStats{T, VT<:AbstractVector{T}, MT<:AbstractMatrix{T}}
     status::Vector{MadNLP.Status}  # (bs,)
     solution::MT                   # (nvar_nlp, bs)
@@ -112,9 +125,11 @@ mutable struct BatchExecutionStats{T, VT<:AbstractVector{T}, MT<:AbstractMatrix{
     multipliers_U::MT              # (nvar_nlp, bs)
     iter::Vector{Int}              # (bs,)
     total_time::Vector{Float64}    # (bs,)
+    batch_cnt::BatchCounters       # solver counters (init_time, ...)
 end
 
-function BatchExecutionStats(::Type{MT}, ::Type{VT}, nvar_nlp::Int, ncon::Int, batch_size::Int) where {T, MT<:AbstractMatrix{T}, VT<:AbstractVector{T}}
+function BatchExecutionStats(::Type{MT}, ::Type{VT}, nvar_nlp::Int, ncon::Int, batch_size::Int,
+                             batch_cnt::BatchCounters = BatchCounters(batch_size)) where {T, MT<:AbstractMatrix{T}, VT<:AbstractVector{T}}
     return BatchExecutionStats{T, VT, MT}(
         fill(MadNLP.INITIAL, batch_size),
         MT(undef, nvar_nlp, batch_size),
@@ -127,6 +142,7 @@ function BatchExecutionStats(::Type{MT}, ::Type{VT}, nvar_nlp::Int, ncon::Int, b
         MT(undef, nvar_nlp, batch_size),
         zeros(Int, batch_size),
         zeros(Float64, batch_size),
+        batch_cnt,
     )
 end
 
@@ -146,15 +162,3 @@ function Base.getindex(stats::BatchExecutionStats, i::Int)
     )
 end
 
-struct BatchCounters
-    k::Vector{Int}              # per-instance iteration count
-    start_time::Base.RefValue{Float64}
-    init_time::Base.RefValue{Float64}
-    total_time::Vector{Float64} # per-instance total solve time
-    linear_solver_time::Base.RefValue{Float64}
-    eval_function_time::Base.RefValue{Float64}
-    obj_cnt::Base.RefValue{Int}
-    obj_grad_cnt::Base.RefValue{Int}
-    con_cnt::Base.RefValue{Int}
-end
-BatchCounters(batch_size::Int) = BatchCounters(zeros(Int, batch_size), Ref(0.0), Ref(0.0), zeros(Float64, batch_size), Ref(0.0), Ref(0.0), Ref(0), Ref(0), Ref(0))

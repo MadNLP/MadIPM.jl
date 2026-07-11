@@ -1,6 +1,7 @@
+using Adapt
 using KernelAbstractions
 using MadNLPGPU
-using BatchQuadraticModels: ObjRHSBatchQuadraticModel, BatchQuadraticModel
+using MadIPM.Models: ObjRHSBatchQuadraticModel, BatchQuadraticModel
 
 function _gpu_batch(qps; Model=ObjRHSBatchQuadraticModel, atol=1e-6, batch_kwargs...)
     bs = length(qps)
@@ -10,9 +11,7 @@ function _gpu_batch(qps; Model=ObjRHSBatchQuadraticModel, atol=1e-6, batch_kwarg
     end
     cpu_bnlp = Model(qps)
 
-    # TODO: make this consistent in BQM
-    CuModel = Model{Float64, Model <: ObjRHSBatchQuadraticModel ? CuVector{Float64} : CuMatrix{Float64}}
-    gpu_bnlp = convert(CuModel, cpu_bnlp)
+    gpu_bnlp = Adapt.adapt(CuArray, cpu_bnlp)
     stats = MadIPM.madipm_batch(gpu_bnlp;
         print_level=MadNLP.ERROR,
         uniformbatch_linear_solver=MadNLPGPU.CUDSSSolver,
@@ -29,7 +28,7 @@ end
 
 @testset "GPU gather/scatter" begin
     cpu_bnlp = BatchQuadraticModel([_lp() for _ in 1:4])
-    gpu_bnlp = convert(BatchQuadraticModel{Float64, CuMatrix{Float64}}, cpu_bnlp)
+    gpu_bnlp = Adapt.adapt(CuArray, cpu_bnlp)
     solver = MadIPM.UniformBatchMPCSolver(gpu_bnlp;
         print_level=MadNLP.ERROR, uniformbatch_linear_solver=MadNLPGPU.CUDSSSolver)
     bvs = solver.batch_views
@@ -111,7 +110,7 @@ end
 
 @testset "residual check INTERNAL_ERROR" begin
     cpu_bnlp = ObjRHSBatchQuadraticModel([_lp() for _ in 1:3])
-    gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
+    gpu_bnlp = Adapt.adapt(CuArray, cpu_bnlp)
     stats = MadIPM.madipm_batch(gpu_bnlp;
         print_level=MadNLP.ERROR,
         uniformbatch_linear_solver=MadNLPGPU.CUDSSSolver,
@@ -120,6 +119,19 @@ end
     CUDA.@allowscalar for i in 1:3
         @test stats[i].status == MadNLP.INTERNAL_ERROR
     end
+end
+
+
+@testset "BatchLinearModel LP shared A bs=3" begin
+    lps = [_lin([1.0, 1.0 + 0.1i], [1.0, 1.0]) for i in 1:3]
+    _gpu_batch(lps; Model=MadIPM.Models.ObjRHSBatchLinearModel, atol=1e-5)
+end
+
+@testset "BatchLinearModel LP per-instance A bs=3" begin
+    lps = [_lin([1.0, 1.0], [1.0, 1.0 + 0.2i]) for i in 1:3]
+    cpu_bnlp = MadIPM.Models.batch_model(lps)
+    @test cpu_bnlp isa MadIPM.Models.UniformBatchLinearModel
+    _gpu_batch(lps; Model=MadIPM.Models.batch_model, atol=1e-5)
 end
 
 end

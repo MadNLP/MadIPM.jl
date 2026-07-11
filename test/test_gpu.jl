@@ -1,10 +1,11 @@
+using Adapt
 using KernelAbstractions
 using MadNLPGPU
 
 @testset "MadIPMCUDA" begin
     qp = simple_lp()
     # Move problem to the GPU
-    qp_gpu = convert(QuadraticModel{Float64, CuVector{Float64}}, qp)
+    qp_gpu = Adapt.adapt(CuArray, qp)
 
     for (kkt, algo) in ((MadNLP.ScaledSparseKKTSystem, MadNLP.LDL     ),
                         (MadNLP.SparseKKTSystem      , MadNLP.LDL     ),

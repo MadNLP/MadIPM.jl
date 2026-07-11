@@ -4,8 +4,42 @@ using MathOptInterface
 using MadNLP
 using MadIPM
 using MadNLPTests
-using QuadraticModels
+using MadIPM.Models
+import MadIPM.Models: LPData, QPData, LinearModel, QuadraticModel
+using NLPModels
+using SparseMatricesCOO: SparseMatrixCOO
 using CUDA
+
+function QuadraticModel(
+    c::AbstractVector{T},
+    Hrows::AbstractVector{<:Integer},
+    Hcols::AbstractVector{<:Integer},
+    Hvals::AbstractVector{T};
+    Arows::AbstractVector{<:Integer} = Int[],
+    Acols::AbstractVector{<:Integer} = Int[],
+    Avals::AbstractVector{T} = T[],
+    lcon::AbstractVector{T} = T[],
+    ucon::AbstractVector{T} = T[],
+    lvar::AbstractVector{T} = fill(T(-Inf), length(c)),
+    uvar::AbstractVector{T} = fill(T(Inf), length(c)),
+    c0::Real = zero(T),
+    x0::AbstractVector{T} = zeros(T, length(c)),
+    y0::AbstractVector{T} = T[],
+    minimize::Bool = true,
+    name::String = "QP",
+) where {T}
+    nvar = length(c)
+    ncon = max(length(lcon), length(ucon), isempty(Arows) ? 0 : maximum(Arows))
+    A = SparseMatrixCOO(ncon, nvar, Vector{Int}(Arows), Vector{Int}(Acols), Vector{T}(Avals))
+    H = SparseMatrixCOO(nvar, nvar, Vector{Int}(Hrows), Vector{Int}(Hcols), Vector{T}(Hvals))
+    lcon_ = isempty(lcon) ? fill(T(-Inf), ncon) : Vector{T}(lcon)
+    ucon_ = isempty(ucon) ? fill(T(Inf), ncon)  : Vector{T}(ucon)
+    y0_   = length(y0) == ncon ? Vector{T}(y0) : zeros(T, ncon)
+    data = QPData(A, Vector{T}(c), H;
+        lvar = Vector{T}(lvar), uvar = Vector{T}(uvar),
+        lcon = lcon_, ucon = ucon_, c0 = T(c0))
+    return QuadraticModel(data; x0 = Vector{T}(x0), y0 = y0_, minimize = minimize, name = name)
+end
 
 function _compare_with_nlp(n, m, ind_fixed, ind_eq; max_ncorr=0, atol=1e-5)
     x0 = zeros(n)
@@ -152,8 +186,60 @@ end
     sol_ref = MadIPM.solve!(qp_solver)
 
     @testset "Presolve" begin
-        new_qp, flag = MadIPM.presolve_qp(qp)
-        @test flag
+        # simple_lp() has nothing reducible → unchanged
+        m, status = MadIPM.presolve_qp(qp)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_UNCHANGED
+        @test m === qp
+
+        # model with fixed variable should reduce
+        qp_fixed = QuadraticModel([1.0, 1.0, 1.0], Int[], Int[], Float64[];
+            Arows=[1,1], Acols=[1,2], Avals=[1.0, 1.0],
+            lcon=[1.0], ucon=[1.0],
+            lvar=[0.0, 0.0, 1.0], uvar=[Inf, Inf, 1.0])
+        red, status = MadIPM.presolve_qp(qp_fixed)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
+        @test NLPModels.get_nvar(red) == 2
+
+        # singleton row: bounds transferred onto x1, row removed
+        qp_srow = QuadraticModel([1.0, 1.0], Int[], Int[], Float64[];
+            Arows=[1,1,2], Acols=[1,2,1], Avals=[1.0, 1.0, 2.0],
+            lcon=[1.0, 0.0], ucon=[1.0, 4.0],
+            lvar=[0.0, 0.0], uvar=[Inf, Inf])
+        red, status = MadIPM.presolve_qp(qp_srow)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
+        @test NLPModels.get_ncon(red) == 1
+        @test NLPModels.get_nvar(red) == 2
+        @test NLPModels.get_uvar(red)[1] == 2.0  # 0 <= 2*x1 <= 4
+
+        # free row (bounds (-Inf, Inf)) removed
+        qp_frow = QuadraticModel([1.0, 1.0], Int[], Int[], Float64[];
+            Arows=[1,1,2,2], Acols=[1,2,1,2], Avals=[1.0, 1.0, 1.0, -1.0],
+            lcon=[1.0, -Inf], ucon=[1.0, Inf],
+            lvar=[0.0, 0.0], uvar=[Inf, Inf])
+        red, status = MadIPM.presolve_qp(qp_frow)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
+        @test NLPModels.get_ncon(red) == 1
+        @test NLPModels.get_nvar(red) == 2
+
+        # free linear singleton column: x3 free, only in row 2, not in Q.
+        # min x1 + x2 + x3  s.t.  x1 + x2 == 1,  x2 + x3 >= 2
+        # y2 = c3/a23 = 1 > 0 → row 2 binds at lcon = 2; eliminating (x3, row 2)
+        # gives  min x1 + 0*x2 + 2  s.t.  x1 + x2 == 1.
+        qp_fsc = QuadraticModel([1.0, 1.0, 1.0], Int[], Int[], Float64[];
+            Arows=[1,1,2,2], Acols=[1,2,2,3], Avals=[1.0, 1.0, 1.0, 1.0],
+            lcon=[1.0, 2.0], ucon=[1.0, Inf],
+            lvar=[0.0, 0.0, -Inf], uvar=[Inf, Inf, Inf])
+        status, res = MadIPM.Models.Presolve.apply_presolve(
+            MadIPM.Models.Presolve.BasicPresolver(), qp_fsc)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
+        red = res.reduced_model
+        @test NLPModels.get_nvar(red) == 2
+        @test NLPModels.get_ncon(red) == 1
+        @test NLPModels.obj(red, [0.0, 1.0]) ≈ 2.0
+        # optimal reduced solution: x = (0, 1), equality-row dual 0
+        x, y = MadIPM.Models.Presolve.recover_solution(res, [0.0, 1.0], [0.0])
+        @test x ≈ [0.0, 1.0, 1.0]  # x3 = (2 - x2)/1
+        @test y ≈ [0.0, 1.0]       # y2 = c3/a23; (x, y) is a KKT point of qp_fsc
     end
 
     @testset "Standard formulation" begin
