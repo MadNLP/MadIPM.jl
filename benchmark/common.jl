@@ -2,16 +2,18 @@
 using DelimitedFiles
 using Printf
 using MadIPM, MadNLP
-using MadNLPHSL
-using QuadraticModels, NLPModels
-using BatchQuadraticModels: ObjRHSBatchQuadraticModel
-using MadNLPGPU, CUDA, CUDSS, KernelAbstractions
+using NLPModels
+using MadNLPGPU, CUDA, KernelAbstractions
 using Random, Distributions, SparseArrays, Memoize
-using Base.Threads, Polyester
-using SparseMatricesCOO
+using Statistics
+using SparseMatricesCOO: SparseMatrixCOO
 using QPSReader
-using MIPLIB
-using HSL
+using Adapt
+
+import MadIPM.Models: LPData, QPData, ScalarModel, LinearModel, QuadraticModel,
+    ObjRHSBatchQuadraticModel, operator_sparse_matrix
+const BQMS = MadIPM.Models.Scaling
+const BQMP = MadIPM.Models.Presolve
 
 function refresh_memory()
     CUDA.reclaim()
@@ -20,71 +22,45 @@ function refresh_memory()
     return
 end
 
-const MadIPMCUDAExt = Base.get_extension(MadIPM, :MadIPMCUDAExt)
-function SparseMatricesCOO.SparseMatrixCOO(A::MadIPMCUDAExt.MadIPMOperator)
-    return SparseMatricesCOO.SparseMatrixCOO(A.A)
+# QPSReader sets `objsense = :notset` for files without an explicit OBJSENSE;
+# treat that as minimize per the LP convention, only flip on explicit `:max`.
+_minimize(qps::QPSData) = (qps.objsense != :max)
+_name(qps::QPSData) = qps.name === nothing ? "QPSData" : qps.name
+
+function qps_model(qps::QPSData)
+    nvar, ncon = length(qps.lvar), length(qps.lcon)
+    A = SparseMatrixCOO(ncon, nvar, qps.arows, qps.acols, qps.avals)
+    H = SparseMatrixCOO(nvar, nvar, qps.qrows, qps.qcols, qps.qvals)
+    data = QPData(A, qps.c, H;
+        lvar = qps.lvar, uvar = qps.uvar,
+        lcon = qps.lcon, ucon = qps.ucon,
+        c0   = qps.c0)
+    return QuadraticModel(data; minimize = _minimize(qps), name = _name(qps))
 end
 
-function _scale_coo!(A, Dr, Dc)
-    k = 1
-    for (i, j) in zip(A.rows, A.cols)
-        A.vals[k] = A.vals[k] / (Dr[i] * Dc[j])
-        k += 1
-    end
+function scale_qp(qp::ScalarModel)
+    _, scaling = BQMS.ruiz_equilibration(operator_sparse_matrix(qp.data.A))
+    return BQMS.scale_model(qp, scaling.row, scaling.col)
 end
 
-function scale_qp(qp::QuadraticModel)
-    A = qp.data.A
-    m, n = size(A)
+_A_coo(qp::ScalarModel) = operator_sparse_matrix(qp.data.A)
+_Q_coo(qp::QuadraticModel) = operator_sparse_matrix(qp.data.Q)
+_Q_coo(qp::LinearModel{T}) where {T} =
+    SparseMatrixCOO(qp.meta.nvar, qp.meta.nvar, Int[], Int[], T[])
 
-    if !LIBHSL_isfunctional()
-        return qp
-    end
-
-    A_csc = sparse(A.rows, A.cols, A.vals, m, n)
-    Dr, Dc = HSL.mc77(A_csc, 0)
-
-    Hs = copy(qp.data.H)
-    As = copy(qp.data.A)
-    _scale_coo!(Hs, Dc, Dc)
-    _scale_coo!(As, Dr, Dc)
-
-    data = QuadraticModels.QPData(
-        qp.data.c0,
-        qp.data.c ./ Dc,
-        # qp.data.v,
-        Hs,
-        As,
-    )
-
-    return QuadraticModel(
-        NLPModelMeta(
-            qp.meta.nvar;
-            ncon=qp.meta.ncon,
-            lvar=qp.meta.lvar .* Dc,
-            uvar=qp.meta.uvar .* Dc,
-            lcon=qp.meta.lcon ./ Dr,
-            ucon=qp.meta.ucon ./ Dr,
-            x0=qp.meta.x0 .* Dc,
-            y0=qp.meta.y0 ./ Dr,
-            nnzj=qp.meta.nnzj,
-            lin_nnzj=qp.meta.nnzj,
-            lin=qp.meta.lin,
-            nnzh=qp.meta.nnzh,
-            minimize=qp.meta.minimize,
-        ),
-        Counters(),
-        data,
-    )
+function _shared_matrix_qp(base::ScalarModel, c, lcon, ucon, lvar, uvar)
+    data = QPData(_A_coo(base), c, _Q_coo(base);
+        lcon = lcon, ucon = ucon,
+        lvar = lvar, uvar = uvar,
+        c0 = base.data.c0[1])
+    return QuadraticModel(data;
+        x0 = copy(base.meta.x0), minimize = base.meta.minimize,
+        name = base.meta.name)
 end
 
-function build_qps(base_qp, batch_size; T = Float64, shift_c=true, shift_b=false, shift_A=false)
-    if T != eltype(base_qp.data.c)
-        base_qp = convert(QuadraticModel{T, Vector{T}}, base_qp)
-    end
-
-    base_pqp, flag = MadIPM.presolve_qp(base_qp)
-    @assert flag "Presolve failed for $case"
+function build_qps(base_qp, batch_size; shift_c=true, shift_b=false)
+    base_pqp, pstatus = MadIPM.presolve_qp(base_qp)
+    @assert pstatus == BQMP.PRESOLVE_UNCHANGED || pstatus == BQMP.PRESOLVE_REDUCED "Presolve declared the instance unsolvable ($pstatus)"
 
     base_sqp = MadIPM.standard_form_qp(scale_qp(base_pqp))
 
@@ -105,19 +81,14 @@ function build_qps(base_qp, batch_size; T = Float64, shift_c=true, shift_b=false
         lcon_new = lcon0 .+ shift
         ucon_new = ucon0 .+ shift
 
-        QuadraticModel(
-            c_new,
-            base_sqp.data.H;
-            A = base_sqp.data.A,
-            lcon = lcon_new,
-            ucon = ucon_new,
-            lvar = copy(base_sqp.meta.lvar),
-            uvar = copy(base_sqp.meta.uvar),
-            x0 = copy(base_sqp.meta.x0),
-            c0 = base_sqp.data.c0,
+        _shared_matrix_qp(
+            base_sqp, c_new, lcon_new, ucon_new,
+            copy(base_sqp.meta.lvar), copy(base_sqp.meta.uvar),
         )
     end for i in 1:batch_size]
 end
+
+to_gpu(bnlp) = Adapt.adapt(CuArray, bnlp)
 
 function _warmup(qp)
     # Warmup CPU
@@ -133,7 +104,7 @@ function _warmup(qp)
     # Warmup GPU
     qps = build_qps(qp, 2)
     cpu_bnlp = ObjRHSBatchQuadraticModel(qps)
-    gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
+    gpu_bnlp = to_gpu(cpu_bnlp)
 
     gpu_solver = MadIPM.UniformBatchMPCSolver(
         gpu_bnlp;

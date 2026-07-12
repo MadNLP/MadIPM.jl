@@ -8,7 +8,7 @@ using Statistics
 PowerModels.silence()
 
 const WARMUP_INSTANCE = "case300.m"
-const MATPOWER_DATA = "/home/fpacaud/dev/matpower/data"
+const MATPOWER_DATA = get(ENV, "MATPOWER_DATA", joinpath(@__DIR__, "matpower", "data"))
 
 function select_dcopf_instances()
     return [
@@ -85,7 +85,7 @@ function dcopf_model(data)
 
     # Encore loads as fixed variables
     # N.B.: keep the load variables at the end to find the corresponding indexes
-    # more easilly once converted to QuadraticModels format
+    # more easilly once converted to MadIPM.Models format
     @variable(model, _loads[i=1:nbus] == loads[i])
 
     for (l,dcline) in ref[:dcline]
@@ -172,9 +172,6 @@ end
 function build_dcopf_qps(base_qp, index, batch_size; tau=0.2)
     # NB: do not apply presolve here
 
-    n = base_qp.meta.nvar
-    m = base_qp.meta.ncon
-
     lvar0 = copy(base_qp.meta.lvar)
     uvar0 = copy(base_qp.meta.uvar)
 
@@ -188,16 +185,10 @@ function build_dcopf_qps(base_qp, index, batch_size; tau=0.2)
         lvar_new[index] .*= sigma
         uvar_new[index] .*= sigma
 
-        QuadraticModel(
-            base_qp.data.c,
-            base_qp.data.H;
-            A = base_qp.data.A,
-            lcon = copy(base_qp.meta.lcon),
-            ucon = copy(base_qp.meta.ucon),
-            lvar = lvar_new,
-            uvar = uvar_new,
-            x0 = copy(base_qp.meta.x0),
-            c0 = base_qp.data.c0,
+        _shared_matrix_qp(
+            base_qp, copy(base_qp.data.c),
+            copy(base_qp.meta.lcon), copy(base_qp.meta.ucon),
+            lvar_new, uvar_new,
         )
     end for i in 1:batch_size]
 end
@@ -256,7 +247,7 @@ function analyze_instance(case, batches; tau=0.0, options...)
 
         # Time on the GPU
         cpu_bnlp = ObjRHSBatchQuadraticModel(qps[1:nb])
-        gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
+        gpu_bnlp = to_gpu(cpu_bnlp)
         t_init_gpu = CUDA.@elapsed begin
             gpu_solver = MadIPM.UniformBatchMPCSolver(
                 gpu_bnlp;
@@ -314,7 +305,7 @@ function solve_batch_dcopf(cases, nbatch, tau; options...)
 
         # GPU
         cpu_bnlp = ObjRHSBatchQuadraticModel(qps)
-        gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
+        gpu_bnlp = to_gpu(cpu_bnlp)
         gpu_solver = MadIPM.UniformBatchMPCSolver(
             gpu_bnlp;
             uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
@@ -372,7 +363,7 @@ function benchmark_dcopf(cases, batches; tau=0.1)
             # Test pure scalability, do not change cost vector here.
             try
                 cpu_bnlp = ObjRHSBatchQuadraticModel(qps[1:batch])
-                gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
+                gpu_bnlp = to_gpu(cpu_bnlp)
                 gpu_solver = MadIPM.UniformBatchMPCSolver(
                     gpu_bnlp;
                     print_level=MadNLP.INFO,
@@ -417,6 +408,7 @@ function decompose_timings()
             max_iter=300,
             scaling=false,
         )
+        mkpath("results")
         writedlm(joinpath("results", "3-decompose-dcopf-$(case).csv"), results)
     end
 end
@@ -463,6 +455,7 @@ function @main(args::Vector{String})
         batches = [2^i for i in 0:pargs.max_batch]
         @info "#instances: $(length(cases))"
         results = benchmark_dcopf(cases, batches)
+        mkpath("results")
         writedlm(joinpath("results", "3-benchmark-dcopf.csv"), results)
     elseif pargs.job == :decompose
         decompose_timings()
@@ -480,6 +473,7 @@ function @main(args::Vector{String})
                 scaling=false,
                 print_level=MadNLP.ERROR,
             )
+            mkpath("results")
             writedlm(joinpath("results", "3-benchmark-batch-$(tau).csv"), results)
         end
     end

@@ -7,7 +7,7 @@ const WARMUP_INSTANCE = "ADLITTLE.SIF"
 
 @memoize function load_instance(case)
     qpdat = readqps(joinpath(NETLIB_PATH, case))
-    return QuadraticModel(qpdat)
+    return qps_model(qpdat)
 end
 
 function warmup(instance)
@@ -59,7 +59,7 @@ function benchmark_scalability(cases, batches; options...)
         for (l, batch) in enumerate(batches)
             # Test pure scalability, do not change cost vector here.
             cpu_bnlp = ObjRHSBatchQuadraticModel(qps[1:batch])
-            gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
+            gpu_bnlp = to_gpu(cpu_bnlp)
             gpu_solver = MadIPM.UniformBatchMPCSolver(
                 gpu_bnlp;
                 uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
@@ -123,6 +123,7 @@ function @main(args::Vector{String})
         max_iter=500,
         regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
     )
+    mkpath("results")
     writedlm(joinpath("results", "1-scalability-netlib.csv"), results)
 end
 

@@ -1,6 +1,8 @@
 
 include("common.jl")
 
+using MIPLIB
+
 
 const NETLIB_PATH = fetch_netlib()
 const MIPLIB_INSTANCES = "miplib_problems.txt"
@@ -70,11 +72,11 @@ end
 
 @memoize function load_netlib_instance(case)
     qpdat = readqps(joinpath(NETLIB_PATH, case))
-    return QuadraticModel(qpdat)
+    return qps_model(qpdat)
 end
 
 @memoize function load_miplib_instance(case)
-    return MIPLIB.miplib2010(case)
+    return qps_model(MIPLIB.miplib2010_data(case))
 end
 
 function benchmark_lps(cases, batches, load_instance; options...)
@@ -111,7 +113,7 @@ function benchmark_lps(cases, batches, load_instance; options...)
             # Test pure scalability, do not change cost vector here.
             try
                 cpu_bnlp = ObjRHSBatchQuadraticModel(qps[1:batch])
-                gpu_bnlp = convert(ObjRHSBatchQuadraticModel{Float64, CuVector{Float64}}, cpu_bnlp)
+                gpu_bnlp = to_gpu(cpu_bnlp)
                 gpu_solver = MadIPM.UniformBatchMPCSolver(
                     gpu_bnlp;
                     uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
@@ -176,6 +178,7 @@ function @main(args::Vector{String})
     batches = [2^i for i in 0:pargs.max_batch]
     if pargs.benchmark == :netlib
         cases = select_netlib_instance()
+        mkpath("results")
         results = benchmark_lps(
             cases,
             batches,
@@ -188,6 +191,7 @@ function @main(args::Vector{String})
         writedlm(joinpath("results", "2-benchmark-netlib.csv"), results)
     elseif pargs.benchmark == :miplib
         cases = select_miplib_instance()
+        mkpath("results")
         results = benchmark_lps(
             cases,
             batches,
