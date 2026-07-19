@@ -73,7 +73,7 @@ function benchmark_scalability(cases, batches; options...)
 
             results[k, shift+4*(l-1)+1] = length(has_converged)
             results[k, shift+4*(l-1)+2] = sum(stats.iter) / batch
-            results[k, shift+4*(l-1)+3] = sum(stats.batch_cnt.init_time) / batch
+            results[k, shift+4*(l-1)+3] = sum(gpu_solver.batch_cnt.init_time) / batch
             results[k, shift+4*(l-1)+4] = sum(stats.total_time) / batch
         end
     end

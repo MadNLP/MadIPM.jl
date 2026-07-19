@@ -123,7 +123,7 @@ function benchmark_lps(cases, batches, load_instance; options...)
                 has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), stats.status)
                 results[k, shift+4*(l-1)+1] = length(has_converged)
                 results[k, shift+4*(l-1)+2] = sum(stats.iter) / batch
-                results[k, shift+4*(l-1)+3] = sum(stats.batch_cnt.init_time) / batch
+                results[k, shift+4*(l-1)+3] = sum(gpu_solver.batch_cnt.init_time) / batch
                 results[k, shift+4*(l-1)+4] = sum(stats.total_time) / batch
             catch ex
                 println("$(case) fails with message $(ex)")
