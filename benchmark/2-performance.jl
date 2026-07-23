@@ -137,31 +137,63 @@ function benchmark_lps(cases, batches, load_instance; options...)
     return [cases results]
 end
 
-function main()
+function parse_args(args::Vector{String})
+    # Default options
+    max_batch = 7
+    device = nothing
+    tol = 1e-6
+    benchmark = :netlib
+    for arg in args
+        if startswith(arg, "--tol=")
+            tol = parse(Float64, split(arg, "=")[2])
+        elseif startswith(arg, "--max-batch=")
+            max_batch = parse(Int, split(arg, "=")[2])
+        elseif startswith(arg, "--device=")
+            device = parse(Int, split(arg, "=")[2])
+        elseif startswith(arg, "--benchmark=")
+            benchmark = Symbol(split(arg, "=")[2])
+        end
+    end
+    return (
+        max_batch=max_batch,
+        tol=tol,
+        device=device,
+        benchmark=benchmark,
+    )
+end
+
+function @main(args::Vector{String})
+    pargs = parse_args(args)
+
+    # Set-up device
+    if !isnothing(pargs.device)
+        CUDA.device!(pargs.device)
+    end
+
     @info "Warmup"
-    bench = :miplib
     _warmup(load_netlib_instance(WARMUP_INSTANCE))
-    batches = [2^i for i in 0:7]
-    if bench == :netlib
+
+    batches = [2^i for i in 0:pargs.max_batch]
+    if pargs.benchmark == :netlib
         cases = select_netlib_instance()
         results = benchmark_lps(
             cases,
             batches,
             load_netlib_instance;
             print_level=MadNLP.ERROR,
-            tol=1e-6,
+            tol=pargs.tol,
             max_iter=300,
             regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
         )
         writedlm(joinpath("results", "2-benchmark-netlib.csv"), results)
-    elseif bench == :miplib
+    elseif pargs.benchmark == :miplib
         cases = select_miplib_instance()
         results = benchmark_lps(
             cases,
             batches,
             load_miplib_instance;
             print_level=MadNLP.ERROR,
-            tol=1e-6,
+            tol=pargs.tol,
             max_iter=300,
             regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
         )
@@ -170,4 +202,3 @@ function main()
     return
 end
 
-main()

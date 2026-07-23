@@ -1,8 +1,6 @@
 
 include("common.jl")
 
-CUDA.device!(1)
-
 using JuMP
 using PowerModels
 using Statistics
@@ -423,19 +421,52 @@ function decompose_timings()
     end
 end
 
-function main()
+function parse_args(args::Vector{String})
+    # Default options
+    max_batch = 12
+    device = nothing
+    tol = 1e-6
+    job = :comp
+    for arg in args
+        if startswith(arg, "--tol=")
+            tol = parse(Float64, split(arg, "=")[2])
+        elseif startswith(arg, "--max-batch=")
+            max_batch = parse(Int, split(arg, "=")[2])
+        elseif startswith(arg, "--device=")
+            device = parse(Int, split(arg, "=")[2])
+        elseif startswith(arg, "--job=")
+            benchmark = Symbol(split(arg, "=")[2])
+        end
+    end
+    return (
+        max_batch=max_batch,
+        tol=tol,
+        job=job,
+        device=device,
+    )
+end
+
+function @main(args::Vector{String})
+    pargs = parse_args(args)
+
+    # Set-up device
+    if !isnothing(pargs.device)
+        CUDA.device!(pargs.device)
+    end
+
     @info "Warmup"
     warmup(WARMUP_INSTANCE)
 
-    work = :comp
     cases = select_dcopf_instances()
 
-    if work == :benchmark
-        batches = [2^i for i in 0:4]
+    if pargs.job == :benchmark
+        batches = [2^i for i in 0:pargs.max_batch]
         @info "#instances: $(length(cases))"
         results = benchmark_dcopf(cases, batches)
         writedlm(joinpath("results", "3-benchmark-dcopf.csv"), results)
-    elseif work == :comp
+    elseif pargs.job == :decompose
+        decompose_timings()
+    elseif pargs.job == :comp
         nbatch = 64
         for tau ∈ [0.0, 0.1, 0.2, 0.3, 0.4]
             @info "\n$(tau)"
@@ -443,7 +474,7 @@ function main()
                 cases,
                 nbatch,
                 tau;
-                tol=1e-6,
+                tol=pargs.tol,
                 regularization=MadIPM.FixedRegularization(1e-8, -1e-8),
                 max_iter=300,
                 scaling=false,

@@ -1,7 +1,6 @@
 
 include("common.jl")
 
-
 const NETLIB_PATH = fetch_netlib()
 const NNZJ_THRESHOLD = 5_000
 const WARMUP_INSTANCE = "ADLITTLE.SIF"
@@ -81,23 +80,50 @@ function benchmark_scalability(cases, batches; options...)
     return [cases results]
 end
 
-function main()
+function parse_args(args::Vector{String})
+    # Default options
+    max_batch = 12
+    device = nothing
+    tol = 1e-6
+    for arg in args
+        if startswith(arg, "--tol=")
+            tol = parse(Float64, split(arg, "=")[2])
+        elseif startswith(arg, "--max-batch=")
+            max_batch = parse(Int, split(arg, "=")[2])
+        elseif startswith(arg, "--device=")
+            device = parse(Int, split(arg, "=")[2])
+        end
+    end
+    return (
+        max_batch=max_batch,
+        tol=tol,
+        device=device,
+    )
+end
+
+function @main(args::Vector{String})
+    pargs = parse_args(args)
+
+    # Set-up device
+    if !isnothing(pargs.device)
+        CUDA.device!(pargs.device)
+    end
+
     @info "Warmup"
     warmup(WARMUP_INSTANCE)
-    # 1 -> 4096
-    batches = [2^i for i in 0:12]
+
+    batches = [2^i for i in 0:pargs.max_batch]
     cases = select_netlib()
     @info "#instances: $(length(cases))"
     results = benchmark_scalability(
         cases,
         batches;
         print_level=MadNLP.ERROR,
-        tol=1e-6,
+        tol=pargs.tol,
         max_iter=500,
         regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
     )
     writedlm(joinpath("results", "1-scalability-netlib.csv"), results)
 end
 
-main()
 
