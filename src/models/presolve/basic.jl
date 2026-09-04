@@ -1,5 +1,5 @@
 """
-    BasicPresolver(; max_passes=5, verbose=false)
+    BasicPresolver(; max_passes=16, verbose=false)
 
 Pure-Julia presolver that repeatedly applies simple reductions until no
 progress is made (or `max_passes` is reached):
@@ -13,10 +13,19 @@ progress is made (or `max_passes` is reached):
   variable and remove the constraint. [`recover_solution`](@ref) reports a
   zero multiplier for the removed row; its dual weight appears on the
   variable bound instead;
+- *forcing rows* — rows whose implied activity range (from the variable
+  bounds) touches one of the row bounds — pin every variable in the row to
+  the bound attaining that activity and are removed. [`recover_solution`](@ref)
+  rebuilds the row multiplier from the reduced costs of the pinned variables;
+- *redundant rows* — rows whose implied activity range lies inside the row
+  bounds — are removed with an exactly-zero multiplier; when only one side can
+  never bind, that side is relaxed to `±Inf` instead (which may turn the row
+  into a free row);
 - *free rows* (`(-Inf, Inf)` bounds) never bind and are removed with an
   exactly-zero multiplier;
 - *empty rows* — constraints without a nonzero in any active variable — are
-  removed, detecting infeasibility when the surviving bounds cannot bracket 0;
+  removed, detecting infeasibility when the surviving bounds cannot bracket 0
+  (up to a tolerance proportional to what was folded into them);
 - *empty columns* — variables appearing in no active constraint — are fixed
   to the optimum for the model objective sense, detecting unboundedness when
   the favored direction is unbounded;
@@ -27,12 +36,15 @@ progress is made (or `max_passes` is reached):
   back-substitutes the variable value and the row multiplier `c[j]/a[i,j]`.
   Detects unboundedness when the objective pushes the row activity toward an
   infinite bound.
+
+Multipliers reported by [`recover_solution`](@ref) follow the convention
+`c + Q x - Aᵀ y = z_l - z_u` with `z_l, z_u >= 0`.
 """
 struct BasicPresolver <: AbstractPresolver
   max_passes::Int
   verbose::Bool
 
-  function BasicPresolver(; max_passes::Int = 5, verbose::Bool = false)
+  function BasicPresolver(; max_passes::Int = 16, verbose::Bool = false)
     max_passes >= 1 || throw(ArgumentError("max_passes must be >= 1"))
     return new(max_passes, verbose)
   end
@@ -51,21 +63,39 @@ struct _FreeSingletonColOp{T}
   row_val::Vector{T}
 end
 
-struct BasicPresolveResult{T, M<:ScalarModel} <: AbstractPresolveResult
+struct _ForcingRowOp{T}
+  i::Int
+  at_lower::Bool        # activity pinned to lcon (true) or ucon (false)
+  equality::Bool        # lcon == ucon when detected: multiplier sign unconstrained
+  col_idx::Vector{Int}  # variables pinned by this row (already-fixed ones excluded)
+  col_val::Vector{T}    # their coefficients a_ij
+end
+
+struct BasicPresolveResult{T, M<:ScalarModel, MQ} <: AbstractPresolveResult
   reduced_model::M
   var_map::Vector{Int}
   con_map::Vector{Int}
   fixed_var_idx::Vector{Int}
   fixed_var_val::Vector{T}
   free_col_ops::Vector{_FreeSingletonColOp{T}}
+  forcing_ops::Vector{_ForcingRowOp{T}}
+  minimize::Bool                # objective sense        } used to rebuild the
+  c::Vector{T}                  # original linear cost   } multipliers of
+  A::SparseMatrixCSC{T, Int}    # original A             } forcing rows
+  Q::MQ                         # original Q (lower) or nothing
   n_orig::Int
   m_orig::Int
 end
 
-struct BasicSolvedResult{T} <: AbstractPresolveResult
+struct BasicSolvedResult{T, MQ} <: AbstractPresolveResult
   fixed_var_idx::Vector{Int}
   fixed_var_val::Vector{T}
   free_col_ops::Vector{_FreeSingletonColOp{T}}
+  forcing_ops::Vector{_ForcingRowOp{T}}
+  minimize::Bool
+  c::Vector{T}
+  A::SparseMatrixCSC{T, Int}
+  Q::MQ
   n_orig::Int
   m_orig::Int
   objective_value::T
@@ -74,16 +104,19 @@ end
 mutable struct _BasicScratch{T}
   minimize::Bool
   c::Vector{T}; c0::T
+  c_orig::Vector{T}         # untouched copy of `c`, for dual recovery
   lvar::Vector{T}; uvar::Vector{T}
   lcon::Vector{T}; ucon::Vector{T}
   A::SparseMatrixCSC{T, Int}
   At::SparseMatrixCSC{T, Int}
   Q::Union{Nothing, SparseMatrixCSC{T, Int}}  # nothing for LinearModel
+  row_scale::Vector{T}      # magnitude of the bounds plus everything folded into them
   var_keep::BitVector
   con_keep::BitVector
   fixed_idx::Vector{Int}
   fixed_val::Vector{T}
   free_col_ops::Vector{_FreeSingletonColOp{T}}
+  forcing_ops::Vector{_ForcingRowOp{T}}
 end
 
 _to_csc(A_op) = _to_csc_storage(operator_sparse_matrix(A_op))
@@ -91,22 +124,34 @@ _to_csc_sym(Q_op) = _to_csc_storage(operator_sparse_matrix(Q_op))
 _to_csc_storage(A::SparseMatrixCSC) = A
 _to_csc_storage(A::SparseMatrixCOO) = sparse(A.rows, A.cols, A.vals, size(A)...)
 
+_finite_mag(x::T) where {T} = isfinite(x) ? abs(x) : zero(T)
+
 function _scratch(model::ScalarModel)
   d = model.data
   T = eltype(d.c)
   A = _to_csc(d.A)
   Q = model isa QuadraticModel ? _to_csc_sym(d.Q) : nothing
+  c = Vector{T}(d.c)
+  lcon = Vector{T}(d.lcon)
+  ucon = Vector{T}(d.ucon)
   return _BasicScratch{T}(
     model.meta.minimize,
-    Vector{T}(d.c), (@inbounds d.c0[1]),
+    c, (@inbounds d.c0[1]),
+    copy(c),
     Vector{T}(d.lvar), Vector{T}(d.uvar),
-    Vector{T}(d.lcon), Vector{T}(d.ucon),
+    lcon, ucon,
     A, sparse(transpose(A)),
     Q,
+    max.(one(T), _finite_mag.(lcon), _finite_mag.(ucon)),
     trues(length(d.c)), trues(size(A, 1)),
-    Int[], T[], _FreeSingletonColOp{T}[],
+    Int[], T[], _FreeSingletonColOp{T}[], _ForcingRowOp{T}[],
   )
 end
+
+# Tolerance for "this emptied row's residual bounds still bracket zero".
+# Everything folded into a row's bounds carries rounding of order
+# eps * |folded|, which is exactly what `row_scale` tracks.
+_row_tol(s::_BasicScratch{T}, i::Int) where {T} = sqrt(eps(T)) * s.row_scale[i]
 
 # ---- Per-pass reductions ----------------------------------------------------
 
@@ -162,6 +207,99 @@ end
 
 @inline function _singleton_bounds(l, u, a)
   return a > 0 ? (l / a, u / a) : (u / a, l / a)
+end
+
+# Implied activity range of row i from the variable bounds,
+#   lact = Σ_j (a_ij > 0 ? a_ij·lvar_j : a_ij·uvar_j),
+#   uact = Σ_j (a_ij > 0 ? a_ij·uvar_j : a_ij·lvar_j),
+# over active nonzero entries (lact ∈ [-∞, ∞), uact ∈ (-∞, ∞], never NaN), then
+#   uact < lcon or lact > ucon    → infeasible;
+#   uact == lcon (finite)         → forcing: every variable sits at the bound attaining uact;
+#   lact == ucon (finite)         → forcing, symmetric;
+#   lcon <= lact and uact <= ucon → redundant row, dropped (multiplier 0);
+#   lcon <= lact only             → the lower side can never bind: lcon = -∞;
+#   uact <= ucon only             → the upper side can never bind: ucon = +∞.
+function _pass_row_activity!(s::_BasicScratch{T}) where {T}
+  At = s.At
+  n_forced = 0
+  n_removed = 0
+  n_relaxed = 0
+  @inbounds for i in eachindex(s.con_keep)
+    s.con_keep[i] || continue
+    l_i, u_i = s.lcon[i], s.ucon[i]
+    (l_i == -T(Inf) && u_i == T(Inf)) && continue
+    lact = zero(T)
+    uact = zero(T)
+    n_active = 0
+    for p in nzrange(At, i)
+      j = At.rowval[p]
+      s.var_keep[j] || continue
+      a = At.nzval[p]
+      iszero(a) && continue
+      n_active += 1
+      lj, uj = s.lvar[j], s.uvar[j]
+      if a > 0
+        lact += a * lj
+        uact += a * uj
+      else
+        lact += a * uj
+        uact += a * lj
+      end
+    end
+    n_active == 0 && continue   # `_pass_empty_rows!` owns these
+    (uact < l_i || lact > u_i) && return :infeasible
+    if uact == l_i && isfinite(l_i)
+      _force_row!(s, i, true)
+      n_forced += 1
+    elseif lact == u_i && isfinite(u_i)
+      _force_row!(s, i, false)
+      n_forced += 1
+    else
+      low_redundant = l_i <= lact
+      up_redundant  = uact <= u_i
+      if low_redundant && up_redundant
+        s.con_keep[i] = false
+        n_removed += 1
+      elseif low_redundant && l_i != -T(Inf)
+        s.lcon[i] = -T(Inf)
+        n_relaxed += 1
+      elseif up_redundant && u_i != T(Inf)
+        s.ucon[i] = T(Inf)
+        n_relaxed += 1
+      end
+    end
+  end
+  return n_forced, n_removed, n_relaxed
+end
+
+# Pin every active variable of forcing row i to the bound attaining the
+# extreme activity (finite by construction) and drop the row now, so the
+# next `_pass_fixed_vars!` never folds the pinned values back into it and
+# `_pass_empty_rows!` never sees a residual rounding error on it. Variables
+# that were already fixed contribute a constant and impose nothing on the
+# multiplier, so they are left out of the op record.
+function _force_row!(s::_BasicScratch{T}, i::Int, at_lower::Bool) where {T}
+  At = s.At
+  col_idx = Int[]
+  col_val = T[]
+  @inbounds for p in nzrange(At, i)
+    j = At.rowval[p]
+    s.var_keep[j] || continue
+    a = At.nzval[p]
+    iszero(a) && continue
+    s.lvar[j] == s.uvar[j] && continue
+    to_upper = at_lower ? (a > 0) : (a < 0)
+    if to_upper
+      s.lvar[j] = s.uvar[j]
+    else
+      s.uvar[j] = s.lvar[j]
+    end
+    push!(col_idx, j)
+    push!(col_val, a)
+  end
+  push!(s.forcing_ops, _ForcingRowOp{T}(i, at_lower, s.lcon[i] == s.ucon[i], col_idx, col_val))
+  s.con_keep[i] = false
+  return nothing
 end
 
 # Fix all variables j with `lvar[j] == uvar[j]`. Propagates v = lvar[j] = uvar[j]
@@ -226,6 +364,7 @@ end
     contrib = A.nzval[p] * v
     s.lcon[i] -= contrib
     s.ucon[i] -= contrib
+    s.row_scale[i] += abs(contrib)
   end
   return nothing
 end
@@ -247,7 +386,7 @@ end
 
 # Drop active rows whose entries are all in dropped columns or are zero.
 # Returns the count removed; or `:infeasible` if a surviving row's bounds are
-# inconsistent (lcon > 0 or ucon < 0).
+# inconsistent (lcon > 0 or ucon < 0, beyond the rounding folded into them).
 function _pass_empty_rows!(s::_BasicScratch{T}) where {T}
   At = s.At
   n_removed = 0
@@ -260,7 +399,8 @@ function _pass_empty_rows!(s::_BasicScratch{T}) where {T}
       end
     end
     active && continue
-    (s.lcon[i] > 0 || s.ucon[i] < 0) && return :infeasible
+    tol = _row_tol(s, i)
+    (s.lcon[i] > tol || s.ucon[i] < -tol) && return :infeasible
     s.con_keep[i] = false
     n_removed += 1
   end
@@ -465,11 +605,14 @@ function _basic_apply(p::BasicPresolver, model::ScalarModel)
   total_fixed = 0
   total_removed = 0
   total_eliminated = 0
+  total_relaxed = 0
 
   for pass in 1:p.max_passes
     pass_fixed = 0
     pass_removed = 0
     pass_eliminated = 0
+    pass_forced = 0
+    pass_relaxed = 0
 
     _pass_bounds!(s) === :infeasible && return PRESOLVE_INFEASIBLE, nothing
 
@@ -477,6 +620,14 @@ function _basic_apply(p::BasicPresolver, model::ScalarModel)
     r === :infeasible && return PRESOLVE_INFEASIBLE, nothing
     pass_removed += r::Int
 
+    r = _pass_row_activity!(s)
+    r === :infeasible && return PRESOLVE_INFEASIBLE, nothing
+    n_forced, n_redundant, n_relaxed = r::Tuple{Int, Int, Int}
+    pass_forced += n_forced
+    pass_removed += n_forced + n_redundant
+    pass_relaxed += n_relaxed
+
+    # Forcing rows leave their variables with lvar == uvar: eliminate them now.
     pass_fixed += _pass_fixed_vars!(s)
     pass_removed += _pass_free_rows!(s)
 
@@ -495,15 +646,18 @@ function _basic_apply(p::BasicPresolver, model::ScalarModel)
     total_fixed      += pass_fixed
     total_removed    += pass_removed
     total_eliminated += pass_eliminated
+    total_relaxed    += pass_relaxed
 
-    if p.verbose && (pass_fixed > 0 || pass_removed > 0 || pass_eliminated > 0)
+    progress = pass_fixed > 0 || pass_removed > 0 || pass_eliminated > 0 || pass_relaxed > 0
+    if p.verbose && progress
       msg = "BasicPresolver pass $pass: fixed $pass_fixed variable(s), " *
-            "removed $pass_removed constraint(s), " *
+            "removed $pass_removed constraint(s) ($pass_forced forcing), " *
+            "relaxed $pass_relaxed row bound(s), " *
             "eliminated $pass_eliminated free singleton column(s)"
       @info msg
     end
 
-    pass_fixed == 0 && pass_removed == 0 && pass_eliminated == 0 && break
+    progress || break
   end
 
   if !any(s.var_keep)
@@ -512,7 +666,7 @@ function _basic_apply(p::BasicPresolver, model::ScalarModel)
     return PRESOLVE_SOLVED, solved::BasicSolvedResult
   end
 
-  if total_fixed == 0 && total_removed == 0 && total_eliminated == 0
+  if total_fixed == 0 && total_removed == 0 && total_eliminated == 0 && total_relaxed == 0
     return PRESOLVE_UNCHANGED, NoPresolveResult(model)
   end
 
@@ -533,9 +687,10 @@ function _build_reduced(model::ScalarModel, s::_BasicScratch{T}) where {T}
   A_red    = _slice_csc(s.A, con_map, var_map)
   A_src    = _match_source(operator_sparse_matrix(model.data.A), A_red)
   reduced  = _construct_reduced(model, s, A_src, c_red, lvar_red, uvar_red, lcon_red, ucon_red, var_map)
-  return BasicPresolveResult{T, typeof(reduced)}(
+  return BasicPresolveResult{T, typeof(reduced), typeof(s.Q)}(
     reduced, var_map, con_map,
-    s.fixed_idx, s.fixed_val, s.free_col_ops,
+    s.fixed_idx, s.fixed_val, s.free_col_ops, s.forcing_ops,
+    s.minimize, s.c_orig, s.A, s.Q,
     length(s.var_keep), length(s.con_keep),
   )
 end
@@ -545,10 +700,12 @@ _slice_csc(A::SparseMatrixCSC, rows::Vector{Int}, cols::Vector{Int}) = A[rows, c
 function _build_solved(s::_BasicScratch{T}) where {T}
   @inbounds for i in eachindex(s.con_keep)
     s.con_keep[i] || continue
-    (s.lcon[i] > 0 || s.ucon[i] < 0) && return :infeasible
+    tol = _row_tol(s, i)
+    (s.lcon[i] > tol || s.ucon[i] < -tol) && return :infeasible
   end
-  return BasicSolvedResult{T}(
-    copy(s.fixed_idx), copy(s.fixed_val), copy(s.free_col_ops),
+  return BasicSolvedResult{T, typeof(s.Q)}(
+    copy(s.fixed_idx), copy(s.fixed_val), copy(s.free_col_ops), copy(s.forcing_ops),
+    s.minimize, s.c_orig, s.A, s.Q,
     length(s.var_keep), length(s.con_keep),
     s.c0,
   )
@@ -593,6 +750,7 @@ function recover_solution(r::BasicPresolveResult{T}, x_red::AbstractVector,
     x[j] = v
   end
   _replay_free_col_ops!(x, y, r.free_col_ops)
+  _replay_forcing_ops!(x, y, r)
   return x, y
 end
 
@@ -604,7 +762,52 @@ function recover_solution(r::BasicSolvedResult{T}, ::AbstractVector,
     x[j] = v
   end
   _replay_free_col_ops!(x, y, r.free_col_ops)
+  _replay_forcing_ops!(x, y, r)
   return x, y
+end
+
+# Multiplier of a forcing row i from the reduced costs of the variables it
+# pinned. With r_j = c_j + (Q x)_j - Σ_{k ≠ i} a_kj y_k, stationarity reads
+# r_j - a_ij y_i = z_j^l - z_j^u; a variable pinned at its upper bound needs
+# r_j - a_ij y_i <= 0 and one at its lower bound >= 0. For a row forced to lcon
+# that is y_i >= r_j / a_ij for every pinned j (symmetrically <= for ucon), so
+# y_i is the largest (smallest) ratio, clamped to the sign an inequality side
+# requires. Rows are replayed newest-first so each multiplier is formed against
+# the rows that were still present when the row was eliminated: rows dropped
+# earlier still carry y = 0 at that point, while rows dropped by free-singleton
+# column ops carry their constant multiplier, which is exactly the cost
+# adjustment those ops folded into `c`. Requires x to be fully recovered.
+# A maximization is handled as the minimization of -f: the ratios and the
+# sign clamp are formed for that problem and the multiplier is flipped back,
+# matching the `c[j]/a[i,j]` convention of the free-singleton-column ops.
+function _replay_forcing_ops!(x::AbstractVector{T}, y::AbstractVector{T},
+                              r::Union{BasicPresolveResult{T}, BasicSolvedResult{T}}) where {T}
+  ops = r.forcing_ops
+  isempty(ops) && return nothing
+  A = r.A
+  σ = r.minimize ? one(T) : -one(T)
+  qx = r.Q === nothing ? nothing : Symmetric(r.Q, :L) * x
+  @inbounds for k in length(ops):-1:1
+    op = ops[k]
+    yi = op.at_lower ? T(-Inf) : T(Inf)
+    for (j, a) in zip(op.col_idx, op.col_val)
+      rc = r.c[j]
+      qx === nothing || (rc += qx[j])
+      for p in nzrange(A, j)
+        i = A.rowval[p]
+        i == op.i && continue
+        rc -= A.nzval[p] * y[i]
+      end
+      ratio = σ * rc / a
+      yi = op.at_lower ? max(yi, ratio) : min(yi, ratio)
+    end
+    isempty(op.col_idx) && (yi = zero(T))
+    if !op.equality
+      yi = op.at_lower ? max(yi, zero(T)) : min(yi, zero(T))
+    end
+    y[op.i] = σ * yi
+  end
+  return nothing
 end
 
 # Back-substitute free-singleton-column eliminations in reverse chronological

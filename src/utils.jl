@@ -331,7 +331,8 @@ IPM together with the [`PresolveStatus`](@ref):
   `model` is the original `qp`.
 
 `presolver` defaults to `BasicPresolver` (pure-Julia: fixed variables,
-singleton/empty/free rows, empty columns, free singleton columns).
+singleton/empty/free rows, forcing and redundant rows from implied activity
+bounds, empty columns, free singleton columns).
 """
 function presolve_qp(qp::_BQMScalarModel; presolver::AbstractPresolver = BasicPresolver())
     status, res = apply_presolve(presolver, qp)

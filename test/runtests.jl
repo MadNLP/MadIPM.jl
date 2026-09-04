@@ -8,6 +8,7 @@ using MadIPM.Models
 import MadIPM.Models: LPData, QPData, LinearModel, QuadraticModel
 using NLPModels
 using SparseMatricesCOO: SparseMatrixCOO
+using SparseArrays, LinearAlgebra
 using CUDA
 
 function QuadraticModel(
@@ -175,6 +176,39 @@ end
 
 end
 
+# Is (x, y) a KKT point of `qp` in the presolver's convention
+# c + Q x - Aᵀy = z_l - z_u with z_l, z_u >= 0?
+function presolve_kkt_ok(qp, x, y; tol=1e-8)
+    n, m = NLPModels.get_nvar(qp), NLPModels.get_ncon(qp)
+    Ac = MadIPM.Models.operator_sparse_matrix(qp.data.A)
+    A = sparse(Ac.rows, Ac.cols, Ac.vals, m, n)
+    Qc = MadIPM.Models.operator_sparse_matrix(qp.data.Q)
+    Q = Symmetric(sparse(Qc.rows, Qc.cols, Qc.vals, n, n), :L)
+    lvar, uvar = NLPModels.get_lvar(qp), NLPModels.get_uvar(qp)
+    lcon, ucon = NLPModels.get_lcon(qp), NLPModels.get_ucon(qp)
+    all(lvar .- tol .<= x .<= uvar .+ tol) || return false
+    r = A * x
+    all(lcon .- tol .<= r .<= ucon .+ tol) || return false
+    z = qp.data.c .+ Q * x .- A' * y
+    for j in 1:n
+        at_l = x[j] <= lvar[j] + tol
+        at_u = x[j] >= uvar[j] - tol
+        (at_l && at_u) && continue
+        at_l && (z[j] >= -tol || return false; continue)
+        at_u && (z[j] <= tol || return false; continue)
+        abs(z[j]) <= tol || return false
+    end
+    for i in 1:m
+        lcon[i] == ucon[i] && continue
+        at_l = r[i] <= lcon[i] + tol
+        at_u = r[i] >= ucon[i] - tol
+        at_l && (y[i] >= -tol || return false; continue)
+        at_u && (y[i] <= tol || return false; continue)
+        abs(y[i]) <= tol || return false
+    end
+    return true
+end
+
 @testset "Test with simple LP" begin
     qp = simple_lp()
 
@@ -240,6 +274,104 @@ end
         x, y = MadIPM.Models.Presolve.recover_solution(res, [0.0, 1.0], [0.0])
         @test x ≈ [0.0, 1.0, 1.0]  # x3 = (2 - x2)/1
         @test y ≈ [0.0, 1.0]       # y2 = c3/a23; (x, y) is a KKT point of qp_fsc
+        @test presolve_kkt_ok(qp_fsc, x, y)
+
+        # forcing row: min x1 + x2  s.t.  x1 + x2 >= 2,  0 <= x <= 1.
+        # The bounds allow an activity of at most 2, so both variables are
+        # pinned at their upper bound and nothing is left to solve.
+        qp_force = QuadraticModel([1.0, 1.0], Int[], Int[], Float64[];
+            Arows=[1,1], Acols=[1,2], Avals=[1.0, 1.0],
+            lcon=[2.0], ucon=[Inf], lvar=[0.0, 0.0], uvar=[1.0, 1.0])
+        status, res = MadIPM.Models.Presolve.apply_presolve(
+            MadIPM.Models.Presolve.BasicPresolver(), qp_force)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_SOLVED
+        @test res.objective_value ≈ 2.0
+        x, y = MadIPM.Models.Presolve.recover_solution(res, Float64[], Float64[])
+        @test x ≈ [1.0, 1.0]
+        @test y ≈ [1.0]            # c - Aᵀy = 0: the row carries the whole dual
+        @test presolve_kkt_ok(qp_force, x, y)
+
+        # forcing row next to a surviving row; the pinned x2 also appears in
+        # row 2, so that row's multiplier feeds back into the forcing-row one.
+        # min x1 + x2 + 2 x3 + x4  s.t.  x1 + x2 >= 2,  x2 + x3 + x4 >= 1.5,  0 <= x <= 1
+        qp_force2 = QuadraticModel([1.0, 1.0, 2.0, 1.0], Int[], Int[], Float64[];
+            Arows=[1,1,2,2,2], Acols=[1,2,2,3,4], Avals=[1.0, 1.0, 1.0, 1.0, 1.0],
+            lcon=[2.0, 1.5], ucon=[Inf, Inf],
+            lvar=zeros(4), uvar=ones(4))
+        status, res = MadIPM.Models.Presolve.apply_presolve(
+            MadIPM.Models.Presolve.BasicPresolver(), qp_force2)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
+        red = res.reduced_model
+        @test NLPModels.get_nvar(red) == 2
+        @test NLPModels.get_ncon(red) == 1
+        @test NLPModels.get_lcon(red) == [0.5]        # 1.5 - x2
+        @test NLPModels.obj(red, [0.0, 0.5]) ≈ 2.5    # 2 + 2*0 + 0.5
+        # reduced optimum (x3, x4) = (0, 0.5) with row multiplier 1
+        x, y = MadIPM.Models.Presolve.recover_solution(res, [0.0, 0.5], [1.0])
+        @test x ≈ [1.0, 1.0, 0.0, 0.5]
+        @test y ≈ [1.0, 1.0]
+        @test presolve_kkt_ok(qp_force2, x, y)
+
+        # two forcing rows in one pass; the second one sees x2 already pinned
+        # min x1 + x2 + x3 + x4  s.t.  x1 + x2 >= 2,  x2 + x3 + x4 >= 3,  0 <= x <= 1
+        qp_force3 = QuadraticModel(ones(4), Int[], Int[], Float64[];
+            Arows=[1,1,2,2,2], Acols=[1,2,2,3,4], Avals=ones(5),
+            lcon=[2.0, 3.0], ucon=[Inf, Inf], lvar=zeros(4), uvar=ones(4))
+        status, res = MadIPM.Models.Presolve.apply_presolve(
+            MadIPM.Models.Presolve.BasicPresolver(), qp_force3)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_SOLVED
+        @test res.objective_value ≈ 4.0
+        x, y = MadIPM.Models.Presolve.recover_solution(res, Float64[], Float64[])
+        @test x ≈ ones(4)
+        @test presolve_kkt_ok(qp_force3, x, y)
+
+        # forcing row on a QP: min ½(x1² + x2²) - 3 x1  s.t.  x1 + x2 >= 2,  0 <= x <= 1
+        qp_forceq = QuadraticModel([-3.0, 0.0], [1, 2], [1, 2], [1.0, 1.0];
+            Arows=[1,1], Acols=[1,2], Avals=[1.0, 1.0],
+            lcon=[2.0], ucon=[Inf], lvar=[0.0, 0.0], uvar=[1.0, 1.0])
+        status, res = MadIPM.Models.Presolve.apply_presolve(
+            MadIPM.Models.Presolve.BasicPresolver(), qp_forceq)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_SOLVED
+        @test res.objective_value ≈ -2.0
+        x, y = MadIPM.Models.Presolve.recover_solution(res, Float64[], Float64[])
+        @test x ≈ [1.0, 1.0]
+        @test y ≈ [1.0]            # reduced costs (-2, 1): the largest ratio wins
+        @test presolve_kkt_ok(qp_forceq, x, y)
+
+        # forcing row on a maximization: max -x1 - x2  s.t.  x1 + x2 >= 2,  0 <= x <= 1.
+        # Same pins as qp_force; the multiplier keeps the file's c - Aᵀy
+        # convention with the original cost, so it flips sign.
+        qp_forcemax = QuadraticModel([-1.0, -1.0], Int[], Int[], Float64[];
+            Arows=[1,1], Acols=[1,2], Avals=[1.0, 1.0],
+            lcon=[2.0], ucon=[Inf], lvar=[0.0, 0.0], uvar=[1.0, 1.0], minimize=false)
+        status, res = MadIPM.Models.Presolve.apply_presolve(
+            MadIPM.Models.Presolve.BasicPresolver(), qp_forcemax)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_SOLVED
+        @test res.objective_value ≈ -2.0
+        x, y = MadIPM.Models.Presolve.recover_solution(res, Float64[], Float64[])
+        @test x ≈ [1.0, 1.0]
+        @test y ≈ [-1.0]
+
+        # redundant row (implied by the bounds) is dropped; a range row whose
+        # lower side can never bind keeps only its upper side.
+        # -1 <= x1 + x2 <= 3  and  -5 <= x1 - x2 <= 0.5  with  0 <= x <= 1
+        qp_red = QuadraticModel([1.0, 1.0], Int[], Int[], Float64[];
+            Arows=[1,1,2,2], Acols=[1,2,1,2], Avals=[1.0, 1.0, 1.0, -1.0],
+            lcon=[-1.0, -5.0], ucon=[3.0, 0.5],
+            lvar=[0.0, 0.0], uvar=[1.0, 1.0])
+        red, status = MadIPM.presolve_qp(qp_red)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
+        @test NLPModels.get_ncon(red) == 1
+        @test NLPModels.get_lcon(red) == [-Inf]
+        @test NLPModels.get_ucon(red) == [0.5]
+
+        # activity bounds prove infeasibility: x1 + x2 >= 3 with x <= 1
+        qp_inf = QuadraticModel([1.0, 1.0], Int[], Int[], Float64[];
+            Arows=[1,1], Acols=[1,2], Avals=[1.0, 1.0],
+            lcon=[3.0], ucon=[Inf], lvar=[0.0, 0.0], uvar=[1.0, 1.0])
+        status, _ = MadIPM.Models.Presolve.apply_presolve(
+            MadIPM.Models.Presolve.BasicPresolver(), qp_inf)
+        @test status == MadIPM.Models.Presolve.PRESOLVE_INFEASIBLE
     end
 
     @testset "Standard formulation" begin
