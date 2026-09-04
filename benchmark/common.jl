@@ -2,6 +2,7 @@
 using DelimitedFiles
 using Printf
 using MadIPM, MadNLP
+using MadNLPHSL
 using NLPModels
 using MadNLPGPU, CUDA, KernelAbstractions
 using Random, Distributions, SparseArrays, Memoize
@@ -90,31 +91,90 @@ end
 
 to_gpu(bnlp) = Adapt.adapt(CuArray, bnlp)
 
-function _warmup(qp)
-    # Warmup CPU
-    cpu_solver = MadIPM.MPCSolver(
-        qp;
-        print_level=MadNLP.ERROR,
-        max_iter=1,
-        regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
-        linear_solver=Ma57Solver,
-    )
-    MadIPM.solve!(cpu_solver)
+#=
+    Timing
 
-    # Warmup GPU
+CPU and GPU report the same two phases, both read from a wall clock:
+  init  — solver construction (KKT allocation, symbolic analysis)
+  solve — `solve!`: scaling, initial point, and the IPM iterations
+The solvers' internal counters are not comparable with each other (the scalar
+solver starts its clock after the initial point, the batch solver in its
+constructor), so they are not used. GPU work is synchronized before the clock
+is read. Presolve, scaling and the host-to-device transfer happen once per
+instance, outside both timers.
+=#
+
+function timed_cpu_solve(qp; linear_solver, options...)
+    t_init = @elapsed solver = MadIPM.MPCSolver(qp; linear_solver=linear_solver, options...)
+    t_solve = @elapsed stats = MadIPM.solve!(solver)
+    return solver, stats, t_init, t_solve
+end
+
+function timed_gpu_solve(gpu_bnlp; options...)
+    t_init = @elapsed begin
+        solver = MadIPM.UniformBatchMPCSolver(
+            gpu_bnlp;
+            uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
+            cudss_algorithm = MadNLP.LDL,
+            options...
+        )
+        CUDA.synchronize()
+    end
+    t_solve = @elapsed begin
+        stats = MadIPM.solve!(solver)
+        CUDA.synchronize()
+    end
+    return solver, stats, t_init, t_solve
+end
+
+# Sequential CPU baseline: solve the instances one after the other, each with
+# its own solver, keeping per-instance wall times. Summing over the first b
+# instances then gives the sequential cost of exactly the problems a batch of
+# size b holds.
+function timed_cpu_sequential(qps; linear_solver, options...)
+    n = length(qps)
+    stats = Vector{Any}(undef, n)
+    t_init = zeros(n)
+    t_solve = zeros(n)
+    for (i, qp) in enumerate(qps)
+        _, stats[i], t_init[i], t_solve[i] =
+            timed_cpu_solve(qp; linear_solver=linear_solver, options...)
+    end
+    return stats, t_init, t_solve
+end
+
+# Per-batch summaries. GPU: converged count, mean iterations, init time, solve
+# time of the batch solved at once. CPU, over instances 1:b: converged count,
+# mean iterations, summed init and solve times (one CPU solving them one after
+# the other), then the max init and solve times (b CPUs solving one instance
+# each with perfect scaling, i.e. the wall time is set by the slowest instance).
+function cpu_summary(stats, t_init, t_solve, b)
+    converged = count(s -> s.status == MadNLP.SOLVE_SUCCEEDED, stats[1:b])
+    return (
+        converged, sum(s.iter for s in stats[1:b]) / b,
+        sum(t_init[1:b]), sum(t_solve[1:b]),
+        maximum(t_init[1:b]), maximum(t_solve[1:b]),
+    )
+end
+
+function gpu_summary(stats, t_init, t_solve)
+    converged = count(isequal(MadNLP.SOLVE_SUCCEEDED), stats.status)
+    return (converged, sum(stats.iter) / length(stats.iter), t_init, t_solve)
+end
+
+# Compile both code paths on the instance layout the benchmarks use: the CPU
+# baseline solves the same presolved, scaled, standard-form problem as the
+# batch, with the linear solver the benchmark will use.
+function _warmup(qp; linear_solver=Ma57Solver)
     qps = build_qps(qp, 2)
-    cpu_bnlp = ObjRHSBatchQuadraticModel(qps)
-    gpu_bnlp = to_gpu(cpu_bnlp)
-
-    gpu_solver = MadIPM.UniformBatchMPCSolver(
-        gpu_bnlp;
+    warmup_options = (
         print_level=MadNLP.ERROR,
         max_iter=1,
         regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
-        uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
-        cudss_algorithm = MadNLP.LDL,
     )
-    stats = MadIPM.solve!(gpu_solver)
+    timed_cpu_solve(qps[1]; linear_solver=linear_solver, warmup_options...)
+    gpu_bnlp = to_gpu(ObjRHSBatchQuadraticModel(qps))
+    timed_gpu_solve(gpu_bnlp; warmup_options...)
     return
 end
 

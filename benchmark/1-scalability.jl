@@ -12,7 +12,7 @@ end
 
 function warmup(instance)
     qp = load_instance(instance)
-    _warmup(qp)
+    _warmup(qp; linear_solver=Ma57Solver)
     return
 end
 
@@ -33,47 +33,37 @@ function select_netlib()
     return selected
 end
 
+# Columns: nvar, ncon, nnzj of the loaded instance; then, per batch size b,
+#   CPU on instances 1:b: converged count, mean iter, summed init time, summed
+#       solve time (one CPU, sequentially), max init time, max solve time
+#       (b CPUs with perfect scaling);
+#   GPU solving the same instances 1:b as one batch: converged count, mean iter,
+#       init time, solve time.
+# Both sides solve the same presolved, scaled, standard-form instances; all
+# times are wall clock.
 function benchmark_scalability(cases, batches; options...)
-    shift = 5
-    m = shift + 4*length(batches)
+    shift = 3
+    m = shift + 10*length(batches)
     results = zeros(length(cases), m)
 
     for (k, case) in enumerate(cases)
         @info case
         refresh_memory()
-        # Launch on CPU
         qp = load_instance(case)
-        cpu_solver = MadIPM.MPCSolver(
-            qp;
-            linear_solver=Ma57Solver,
-            options...
-        )
-        stats = MadIPM.solve!(cpu_solver)
         results[k, 1] = NLPModels.get_nvar(qp)
         results[k, 2] = NLPModels.get_ncon(qp)
         results[k, 3] = NLPModels.get_nnzj(qp)
-        results[k, 4] = stats.iter
-        results[k, 5] = stats.counters.total_time
-        # Launch on GPU (batch)
+        # Test pure scalability, do not change cost vector here.
         qps = build_qps(qp, batches[end]; shift_c=false)
+        # CPU: every instance of the largest batch, sequentially
+        cpu = timed_cpu_sequential(qps; linear_solver=Ma57Solver, options...)
         for (l, batch) in enumerate(batches)
-            # Test pure scalability, do not change cost vector here.
-            cpu_bnlp = ObjRHSBatchQuadraticModel(qps[1:batch])
-            gpu_bnlp = to_gpu(cpu_bnlp)
-            gpu_solver = MadIPM.UniformBatchMPCSolver(
-                gpu_bnlp;
-                uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
-                cudss_algorithm = MadNLP.LDL,
-                cudss_pivot_epsilon=1e-8,
-                options...
-            )
-            stats = MadIPM.solve!(gpu_solver)
-            has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), stats.status)
-
-            results[k, shift+4*(l-1)+1] = length(has_converged)
-            results[k, shift+4*(l-1)+2] = sum(stats.iter) / batch
-            results[k, shift+4*(l-1)+3] = sum(gpu_solver.batch_cnt.init_time) / batch
-            results[k, shift+4*(l-1)+4] = sum(stats.total_time) / batch
+            results[k, shift+10*(l-1) .+ (1:6)] .= cpu_summary(cpu..., batch)
+            # GPU: the same instances as one batch
+            refresh_memory()
+            gpu_bnlp = to_gpu(ObjRHSBatchQuadraticModel(qps[1:batch]))
+            _, stats, t_init, t_solve = timed_gpu_solve(gpu_bnlp; cudss_pivot_epsilon=1e-8, options...)
+            results[k, shift+10*(l-1) .+ (7:10)] .= gpu_summary(stats, t_init, t_solve)
         end
     end
 

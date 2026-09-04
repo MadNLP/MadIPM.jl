@@ -219,15 +219,13 @@ function analyze_instance(case, batches; tau=0.0, options...)
     # Load LPs in host memory
     qps = build_dcopf_qps(qp, index, batches[end]; tau=tau)
 
-    # Time on the CPU
-    t_init_cpu = @elapsed begin
-        cpu_solver = MadIPM.MPCSolver(
-            qp;
-            linear_solver=Ma57Solver,
-            options...
-        )
-    end
-    stats = MadIPM.solve!(cpu_solver)
+    # Columns: batch size, mean iter, solve time, init time, one-step time,
+    # one-factorization time. Row 1 is the CPU on the first instance of the
+    # batch; the step and factorization are timed from a fresh initial point
+    # on both sides.
+    cpu_solver, stats, t_init_cpu, t_solve_cpu =
+        timed_cpu_solve(qps[1]; linear_solver=Ma57Solver, options...)
+    MadIPM.initialize!(cpu_solver)
     t_factorization_cpu = @elapsed begin
         MadIPM.factorize_system!(cpu_solver)
     end
@@ -237,7 +235,7 @@ function analyze_instance(case, batches; tau=0.0, options...)
 
     results[1, 1] = 1
     results[1, 2] = stats.iter
-    results[1, 3] = stats.counters.total_time
+    results[1, 3] = t_solve_cpu
     results[1, 4] = t_init_cpu
     results[1, 5] = t_iter_cpu
     results[1, 6] = t_factorization_cpu
@@ -248,16 +246,7 @@ function analyze_instance(case, batches; tau=0.0, options...)
         # Time on the GPU
         cpu_bnlp = ObjRHSBatchQuadraticModel(qps[1:nb])
         gpu_bnlp = to_gpu(cpu_bnlp)
-        t_init_gpu = CUDA.@elapsed begin
-            gpu_solver = MadIPM.UniformBatchMPCSolver(
-                gpu_bnlp;
-                uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
-                cudss_algorithm = MadNLP.LDL,
-                options...
-            )
-        end
-        # Solve problem
-        stats = MadIPM.solve!(gpu_solver)
+        gpu_solver, stats, t_init_gpu, t_solve_gpu = timed_gpu_solve(gpu_bnlp; options...)
         # Time individual operations
         # (need to reinitialize structure first to avoid masking side-effect)
         MadIPM.initialize!(gpu_solver)
@@ -270,7 +259,7 @@ function analyze_instance(case, batches; tau=0.0, options...)
 
         results[k+1, 1] = nb
         results[k+1, 2] = sum(stats.iter) / nb        # average
-        results[k+1, 3] = sum(stats.total_time) / nb  # average
+        results[k+1, 3] = t_solve_gpu                 # whole batch
         results[k+1, 4] = t_init_gpu
         results[k+1, 5] = t_iter_gpu
         results[k+1, 6] = t_factorization_gpu
@@ -292,8 +281,13 @@ function solve_batch_dcopf(cases, nbatch, tau; options...)
         # Load LPs in host memory
         qps = build_dcopf_qps(qp, index, nbatch; tau=tau)
 
+        # Columns: CPU converged count, mean iter, std iter, solve time of all
+        # instances one after the other; then the same for the GPU batch. Both
+        # times cover every instance, converged or not: an instance that runs
+        # to the iteration limit costs its iterations on either side.
         # CPU
-        stats_cpu = madipm.(qps; linear_solver=Ma57Solver, options...)
+        cpu_runs = [timed_cpu_solve(qp_i; linear_solver=Ma57Solver, options...) for qp_i in qps]
+        stats_cpu = [r[2] for r in cpu_runs]
 
         status = [s.status for s in stats_cpu]
         iters = [s.iter for s in stats_cpu]
@@ -301,34 +295,41 @@ function solve_batch_dcopf(cases, nbatch, tau; options...)
         results[k, 1] = length(has_converged)
         results[k, 2] = mean(iters[has_converged])
         results[k, 3] = std(iters[has_converged])
-        results[k, 4] = sum([s.counters.total_time for s in stats_cpu[has_converged]])
+        results[k, 4] = sum(r[4] for r in cpu_runs)
 
         # GPU
         cpu_bnlp = ObjRHSBatchQuadraticModel(qps)
         gpu_bnlp = to_gpu(cpu_bnlp)
-        gpu_solver = MadIPM.UniformBatchMPCSolver(
-            gpu_bnlp;
-            uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
-            cudss_algorithm = MadNLP.LDL,
-            options...
-        )
-        # Solve problem
-        stats_gpu = MadIPM.solve!(gpu_solver)
+        _, stats_gpu, _, t_solve_gpu = timed_gpu_solve(gpu_bnlp; options...)
         has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), stats_gpu.status)
         results[k, 5] = length(has_converged)
         results[k, 6] = mean(stats_gpu.iter[has_converged])
         results[k, 7] = std(stats_gpu.iter[has_converged])
-        results[k, 8] = sum(stats_gpu.total_time[has_converged]) / nbatch
+        results[k, 8] = t_solve_gpu
     end
 
     return [cases results]
 end
 
+# Columns: nvar, ncon, nnzj of the standard-form problem; then, per batch size b,
+#   CPU on instances 1:b: converged count, mean iter, summed init time, summed
+#       solve time (one CPU, sequentially), max init time, max solve time
+#       (b CPUs with perfect scaling);
+#   GPU solving the same instances 1:b as one batch: converged count, mean iter,
+#       init time, solve time.
+# Both sides solve the same perturbed instances; all times are wall clock.
 function benchmark_dcopf(cases, batches; tau=0.1)
-    m = 5 + 2*length(batches)
-    shift1 = 5
-    shift2 = shift1 + length(batches)
+    shift = 3
+    m = shift + 10*length(batches)
     results = zeros(length(cases), m)
+
+    options = (
+        print_level=MadNLP.INFO,
+        max_iter=300,
+        tol=1e-6,
+        regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
+        scaling=false,
+    )
 
     for (k, case) in enumerate(cases)
         @info case
@@ -344,44 +345,22 @@ function benchmark_dcopf(cases, batches; tau=0.1)
         results[k, 2] = NLPModels.get_ncon(qp)
         results[k, 3] = NLPModels.get_nnzj(qp)
 
-        # Launch on CPU
-        cpu_solver = MadIPM.MPCSolver(
-            qp;
-            print_level=MadNLP.INFO,
-            max_iter=300,
-            tol=1e-6,
-            regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
-            linear_solver=Ma57Solver,
-            scaling=false,
-        )
-        stats = MadIPM.solve!(cpu_solver)
-        results[k, 4] = stats.iter
-        results[k, 5] = stats.counters.total_time
-        # Launch on GPU (batch)
         qps = build_dcopf_qps(qp, index, batches[end]; tau=tau)
+        # CPU: every instance of the largest batch, sequentially
+        cpu = timed_cpu_sequential(qps; linear_solver=Ma57Solver, options...)
         for (l, batch) in enumerate(batches)
-            # Test pure scalability, do not change cost vector here.
+            cpu_cols = shift+10*(l-1) .+ (1:6)
+            gpu_cols = shift+10*(l-1) .+ (7:10)
+            results[k, cpu_cols] .= cpu_summary(cpu..., batch)
+            # GPU: the same instances as one batch
             try
-                cpu_bnlp = ObjRHSBatchQuadraticModel(qps[1:batch])
-                gpu_bnlp = to_gpu(cpu_bnlp)
-                gpu_solver = MadIPM.UniformBatchMPCSolver(
-                    gpu_bnlp;
-                    print_level=MadNLP.INFO,
-                    tol=1e-6,
-                    max_iter=300,
-                    regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
-                    uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
-                    cudss_algorithm = MadNLP.LDL,
-                    scaling=false,
-                )
-                stats = MadIPM.solve!(gpu_solver)
-                println(stats.total_time)
-                results[k, shift1+l] = sum(stats.iter) / batch
-                results[k, shift2+l] = sum(stats.total_time) / batch
+                refresh_memory()
+                gpu_bnlp = to_gpu(ObjRHSBatchQuadraticModel(qps[1:batch]))
+                _, stats, t_init, t_solve = timed_gpu_solve(gpu_bnlp; options...)
+                results[k, gpu_cols] .= gpu_summary(stats, t_init, t_solve)
             catch ex
                 println("Failure for $(case): $(ex)")
-                results[k, shift1+l] = -1
-                results[k, shift2+l] = -1
+                results[k, gpu_cols] .= -1
             end
         end
     end
@@ -427,7 +406,7 @@ function parse_args(args::Vector{String})
         elseif startswith(arg, "--device=")
             device = parse(Int, split(arg, "=")[2])
         elseif startswith(arg, "--job=")
-            benchmark = Symbol(split(arg, "=")[2])
+            job = Symbol(split(arg, "=")[2])
         end
     end
     return (

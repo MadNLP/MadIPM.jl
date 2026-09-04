@@ -79,9 +79,17 @@ end
     return qps_model(MIPLIB.miplib2010_data(case))
 end
 
+# Columns: nvar, ncon, nnzj of the loaded instance; then, per batch size b,
+#   CPU on instances 1:b: converged count, mean iter, summed init time, summed
+#       solve time (one CPU, sequentially), max init time, max solve time
+#       (b CPUs with perfect scaling);
+#   GPU solving the same instances 1:b as one batch: converged count, mean iter,
+#       init time, solve time.
+# Both sides solve the same presolved, scaled, standard-form instances, cost
+# perturbations included; all times are wall clock. Failures are marked -1.
 function benchmark_lps(cases, batches, load_instance; options...)
-    shift = 5
-    m = shift + 4*length(batches)
+    shift = 3
+    m = shift + 10*length(batches)
     results = zeros(length(cases), m)
 
     for (k, case) in enumerate(cases)
@@ -92,47 +100,37 @@ function benchmark_lps(cases, batches, load_instance; options...)
         results[k, 1] = NLPModels.get_nvar(qp)
         results[k, 2] = NLPModels.get_ncon(qp)
         results[k, 3] = NLPModels.get_nnzj(qp)
-        # Launch on CPU
-        try
-            cpu_solver = MadIPM.MPCSolver(
-                qp;
-                linear_solver=Ma27Solver,
-                options...
-            )
-            stats = MadIPM.solve!(cpu_solver)
-            results[k, 4] = stats.iter
-            results[k, 5] = stats.counters.total_time
+        qps = try
+            build_qps(qp, batches[end])
         catch ex
-            println("$(case) fails with message $(ex)")
-            results[k, 4] = -1
-            results[k, 5] = -1
+            println("$(case) fails in presolve with message $(ex)")
+            results[k, shift+1:end] .= -1
+            continue
         end
-        # Launch on GPU (batch)
-        qps = build_qps(qp, batches[end])
+        # CPU: every instance of the largest batch, sequentially
+        cpu = try
+            timed_cpu_sequential(qps; linear_solver=Ma27Solver, options...)
+        catch ex
+            println("$(case) fails on CPU with message $(ex)")
+            nothing
+        end
         for (l, batch) in enumerate(batches)
-            # Test pure scalability, do not change cost vector here.
+            cpu_cols = shift+10*(l-1) .+ (1:6)
+            gpu_cols = shift+10*(l-1) .+ (7:10)
+            if cpu === nothing
+                results[k, cpu_cols] .= -1
+            else
+                results[k, cpu_cols] .= cpu_summary(cpu..., batch)
+            end
+            # GPU: the same instances as one batch
             try
-                cpu_bnlp = ObjRHSBatchQuadraticModel(qps[1:batch])
-                gpu_bnlp = to_gpu(cpu_bnlp)
-                gpu_solver = MadIPM.UniformBatchMPCSolver(
-                    gpu_bnlp;
-                    uniformbatch_linear_solver = MadNLPGPU.CUDSSSolver,
-                    cudss_algorithm = MadNLP.LDL,
-                    cudss_pivot_epsilon=1e-8,
-                    options...
-                )
-                stats = MadIPM.solve!(gpu_solver)
-                has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), stats.status)
-                results[k, shift+4*(l-1)+1] = length(has_converged)
-                results[k, shift+4*(l-1)+2] = sum(stats.iter) / batch
-                results[k, shift+4*(l-1)+3] = sum(gpu_solver.batch_cnt.init_time) / batch
-                results[k, shift+4*(l-1)+4] = sum(stats.total_time) / batch
+                refresh_memory()
+                gpu_bnlp = to_gpu(ObjRHSBatchQuadraticModel(qps[1:batch]))
+                _, stats, t_init, t_solve = timed_gpu_solve(gpu_bnlp; cudss_pivot_epsilon=1e-8, options...)
+                results[k, gpu_cols] .= gpu_summary(stats, t_init, t_solve)
             catch ex
-                println("$(case) fails with message $(ex)")
-                results[k, shift+4*(l-1)+1] = -1
-                results[k, shift+4*(l-1)+2] = -1
-                results[k, shift+4*(l-1)+3] = -1
-                results[k, shift+4*(l-1)+4] = -1
+                println("$(case) fails on GPU with message $(ex)")
+                results[k, gpu_cols] .= -1
             end
         end
     end
@@ -173,7 +171,7 @@ function @main(args::Vector{String})
     end
 
     @info "Warmup"
-    _warmup(load_netlib_instance(WARMUP_INSTANCE))
+    _warmup(load_netlib_instance(WARMUP_INSTANCE); linear_solver=Ma27Solver)
 
     batches = [2^i for i in 0:pargs.max_batch]
     if pargs.benchmark == :netlib

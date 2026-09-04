@@ -9,6 +9,7 @@ MIPLIB = "93a727b6-5edc-4a43-9139-9257ae55f08d"
 MadIPM = "4406d55e-1099-4ca6-ac6a-6cf051b10024"
 MadNLP = "2621e9c9-9eb4-46b1-8089-e8c72242dfb6"
 MadNLPGPU = "d72a61cc-809d-412f-99be-fd81f4b8a598"
+MadNLPHSL = "7fb6135f-58fe-4112-84ca-653cf5be0c77"
 Memoize = "c03570c3-d221-55d1-a50c-7939bbd78826"
 NLPModels = "a4795742-8479-5a88-8948-cc11e1c8c1a6"
 PowerModels = "c36e90e8-916a-50a6-bd94-075b64ef4655"
@@ -22,6 +23,9 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 [sources]
 MIPLIB = {rev = "main", url = "https://github.com/MadNLP/MIPLIB.jl"}
 MadIPM = {path = ".."}
+# The CPU baseline uses Ma27/Ma57 through MadNLPHSL, which needs a licensed
+# libHSL: point HSL_jll at a local build, e.g.
+# HSL_jll = {path = "/path/to/HSL_jll.jl"}
 
 [compat]
 Adapt = "4"
@@ -30,6 +34,7 @@ JuMP = "1"
 KernelAbstractions = "0.9.34"
 MadNLP = "=0.9.1"
 MadNLPGPU = "0.8"
+MadNLPHSL = "0.7"
 NLPModels = "0.21.12"
 PowerModels = "0.21"
 QPSReader = "0.2.1"
