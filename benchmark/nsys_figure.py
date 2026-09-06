@@ -38,13 +38,14 @@ from matplotlib.patches import Rectangle
 
 # default row: one bar per call of these functions (module prefixes ignored)
 PHASES = ["factorize_system!", "solve_system!", "update_termination_status!", "evaluate_model!"]
-PHASE_COLORS = {
-    "factorize_system!": "#08306b",
-    "solve_system!": "#4292c6",
-    "update_termination_status!": "#f16913",
-    "evaluate_model!": "#41ab5d",
+PHASE_COLORS = {                          # light fills, so the black labels stay readable
+    "factorize_system!": "#9ecae1",
+    "solve_system!": "#a1d99b",
+    "update_termination_status!": "#bcbddc",
+    "evaluate_model!": "#fdae6b",
 }
-IDLE_COLOR = "#e6e6e6"
+FALLBACK_CMAP = "Set2"                    # other range names
+IDLE_COLOR = "#ececec"
 MEMORY_ROWS = [(1, "HtoD", "#d62728"), (2, "DtoH", "#7b3294")]   # copyKind ids of the export   # copyKind ids of the export
 
 
@@ -232,14 +233,14 @@ def draw(row, memory, t0, t1, title, out, width, show_memory=True):
     min_w = 0.8 / pts_per_ms                  # ticks at least 0.8 pt wide
 
     # projected ranges
-    tab10 = plt.get_cmap("tab10")
-    color = {n: PHASE_COLORS.get(n, tab10(i % 10)) for i, n in enumerate(order)}
+    fallback = [plt.get_cmap(FALLBACK_CMAP)(i) for i in range(7)]   # without Set2's grey (the idle fill)
+    color = {n: PHASE_COLORS.get(n, fallback[i % len(fallback)]) for i, n in enumerate(order)}
     y, h = y_of["gpu"], 1.0
     ax.add_patch(Rectangle((0, y), span / 1e6, h, facecolor=IDLE_COLOR, edgecolor="none"))
     for i, r in enumerate(row):
         a, b = gclip(r)
         x0, x1, n = ms(a), ms(b), short_name(r["name"])
-        ax.add_patch(Rectangle((x0, y), max(x1 - x0, min_w), h, facecolor=color[n], edgecolor="white", linewidth=0.3))
+        ax.add_patch(Rectangle((x0, y), max(x1 - x0, min_w), h, facecolor=color[n], edgecolor="white", linewidth=0.5))
         if i in leaders:
             xc = (x0 + x1) / 2
             half = text_w(n, 6.5) / 2 / pts_per_ms      # keep the text inside the axes
