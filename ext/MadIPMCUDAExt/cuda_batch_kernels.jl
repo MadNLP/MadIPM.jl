@@ -439,3 +439,105 @@ function MadIPM._finish_aug_solve_batch!(values::CuMatrix, ind_lb, lb_off, l_low
     nub > 0 && _finish_aug_solve_ub_kernel!(backend)(values, ind_ub, ub_off, u_lower, u_diag; ndrange=(nub, bs))
     return
 end
+
+function _kktmul_primal_dual_kernel!(
+    wvals, xvals, reg, nzvals,
+    du_off::Int32, n::Int32, nrows::Int32, total::Int32, alpha,
+)
+    idx = Int32((blockIdx().x - 1) * blockDim().x + threadIdx().x)
+    stride = Int32(blockDim().x * gridDim().x)
+    @inbounds while idx <= total
+        row = (idx - Int32(1)) % nrows + Int32(1)
+        col = (idx - Int32(1)) ÷ nrows + Int32(1)
+        if row <= n
+            wvals[row, col] += alpha * reg[row, col] * xvals[row, col]
+        else
+            k = row - n
+            wvals[row, col] += alpha * nzvals[du_off + k, col] * xvals[row, col]
+        end
+        idx += stride
+    end
+    return nothing
+end
+
+function _kktmul_lower_kernel!(
+    wvals, xvals, ind_lb, l_lower, l_diag,
+    lb_off::Int32, nlb::Int32, total::Int32, alpha, beta,
+)
+    idx = Int32((blockIdx().x - 1) * blockDim().x + threadIdx().x)
+    stride = Int32(blockDim().x * gridDim().x)
+    @inbounds while idx <= total
+        i = (idx - Int32(1)) % nlb + Int32(1)
+        col = (idx - Int32(1)) ÷ nlb + Int32(1)
+        row = ind_lb[i]
+        dlb_row = lb_off + i
+        dlb = xvals[dlb_row, col]
+        wvals[row, col] -= alpha * dlb
+        wvals[dlb_row, col] =
+            beta * wvals[dlb_row, col] +
+            alpha * (xvals[row, col] * l_lower[i, col] - dlb * l_diag[i, col])
+        idx += stride
+    end
+    return nothing
+end
+
+function _kktmul_upper_kernel!(
+    wvals, xvals, ind_ub, u_lower, u_diag,
+    ub_off::Int32, nub::Int32, total::Int32, alpha, beta,
+)
+    idx = Int32((blockIdx().x - 1) * blockDim().x + threadIdx().x)
+    stride = Int32(blockDim().x * gridDim().x)
+    @inbounds while idx <= total
+        i = (idx - Int32(1)) % nub + Int32(1)
+        col = (idx - Int32(1)) ÷ nub + Int32(1)
+        row = ind_ub[i]
+        dub_row = ub_off + i
+        dub = xvals[dub_row, col]
+        wvals[row, col] += alpha * dub
+        wvals[dub_row, col] =
+            beta * wvals[dub_row, col] +
+            alpha * (xvals[row, col] * u_lower[i, col] + dub * u_diag[i, col])
+        idx += stride
+    end
+    return nothing
+end
+
+function MadIPM._kktmul!(
+    w::MadIPM.BatchUnreducedKKTVector{T,<:CuMatrix{T}},
+    x::MadIPM.BatchUnreducedKKTVector{T,<:CuMatrix{T}},
+    kkt::MadIPM.SparseUniformBatchKKTSystem{T},
+    alpha,
+    beta,
+) where T
+    wvals = MadNLP.full(w)
+    xvals = MadNLP.full(x)
+    bs = size(wvals, 2)
+    threads = 256
+    alpha_T = T(alpha)
+    beta_T = T(beta)
+    nrows_pd = w.n + w.m
+    total_pd = nrows_pd * bs
+    if total_pd > 0
+        CUDA.@cuda always_inline=true threads=threads blocks=cld(total_pd, threads) _kktmul_primal_dual_kernel!(
+            wvals, xvals, kkt.reg, kkt.nzVals,
+            Int32(size(kkt.nzVals, 1) - kkt.m), Int32(w.n), Int32(nrows_pd), Int32(total_pd), alpha_T,
+        )
+    end
+    lb_off = w.n + w.m
+    total_lb = w.nlb * bs
+    if total_lb > 0
+        CUDA.@cuda always_inline=true threads=threads blocks=cld(total_lb, threads) _kktmul_lower_kernel!(
+            wvals, xvals, w.ind_lb, kkt.l_lower, kkt.l_diag,
+            Int32(lb_off), Int32(w.nlb), Int32(total_lb), alpha_T, beta_T,
+        )
+    end
+    ub_off = lb_off + w.nlb
+    total_ub = w.nub * bs
+    if total_ub > 0
+        CUDA.@cuda always_inline=true threads=threads blocks=cld(total_ub, threads) _kktmul_upper_kernel!(
+            wvals, xvals, w.ind_ub, kkt.u_lower, kkt.u_diag,
+            Int32(ub_off), Int32(w.nub), Int32(total_ub), alpha_T, beta_T,
+        )
+    end
+    return
+end
