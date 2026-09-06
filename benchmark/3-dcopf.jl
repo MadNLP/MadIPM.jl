@@ -223,24 +223,32 @@ function analyze_instance(case, batches; cpu_solver, tau=0.0, options...)
     # one-factorization time. Row 1 is the CPU on the first instance of the
     # batch; the step and factorization are timed from a fresh initial point
     # on both sides.
-    cpu_solver, stats, t_init_cpu, t_solve_cpu =
-        timed_cpu_solve(qps[1]; linear_solver=cpu_solver, options...)
-    MadIPM.initialize!(cpu_solver)
-    t_factorization_cpu = @elapsed begin
-        MadIPM.factorize_system!(cpu_solver)
-    end
-    t_iter_cpu = @elapsed begin
-        MadIPM.mpc_step!(cpu_solver)
-    end
-
     results[1, 1] = 1
-    results[1, 2] = stats.iter
-    results[1, 3] = t_solve_cpu
-    results[1, 4] = t_init_cpu
-    results[1, 5] = t_iter_cpu
-    results[1, 6] = t_factorization_cpu
+    if RUN_CPU
+        cpu_solver, stats, t_init_cpu, t_solve_cpu =
+            timed_cpu_solve(qps[1]; linear_solver=cpu_solver, options...)
+        MadIPM.initialize!(cpu_solver)
+        t_factorization_cpu = @elapsed begin
+            MadIPM.factorize_system!(cpu_solver)
+        end
+        t_iter_cpu = @elapsed begin
+            MadIPM.mpc_step!(cpu_solver)
+        end
+        results[1, 2] = stats.iter
+        results[1, 3] = t_solve_cpu
+        results[1, 4] = t_init_cpu
+        results[1, 5] = t_iter_cpu
+        results[1, 6] = t_factorization_cpu
+    else
+        results[1, 2:6] .= -1
+    end
 
     for (k, nb) in enumerate(batches)
+        results[k+1, 1] = nb
+        if !RUN_GPU
+            results[k+1, 2:6] .= -1
+            continue
+        end
         refresh_memory()
 
         # Time on the GPU
@@ -286,26 +294,34 @@ function solve_batch_dcopf(cases, nbatch, tau; cpu_solver, options...)
         # times cover every instance, converged or not: an instance that runs
         # to the iteration limit costs its iterations on either side.
         # CPU
-        cpu_runs = [timed_cpu_solve(qp_i; linear_solver=cpu_solver, options...) for qp_i in qps]
-        stats_cpu = [r[2] for r in cpu_runs]
+        if RUN_CPU
+            cpu_runs = [timed_cpu_solve(qp_i; linear_solver=cpu_solver, options...) for qp_i in qps]
+            stats_cpu = [r[2] for r in cpu_runs]
 
-        status = [s.status for s in stats_cpu]
-        iters = [s.iter for s in stats_cpu]
-        has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), status)
-        results[k, 1] = length(has_converged)
-        results[k, 2] = mean(iters[has_converged])
-        results[k, 3] = std(iters[has_converged])
-        results[k, 4] = sum(r[4] for r in cpu_runs)
+            status = [s.status for s in stats_cpu]
+            iters = [s.iter for s in stats_cpu]
+            has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), status)
+            results[k, 1] = length(has_converged)
+            results[k, 2] = mean(iters[has_converged])
+            results[k, 3] = std(iters[has_converged])
+            results[k, 4] = sum(r[4] for r in cpu_runs)
+        else
+            results[k, 1:4] .= -1
+        end
 
         # GPU
-        cpu_bnlp = ObjRHSBatchQuadraticModel(qps)
-        gpu_bnlp = to_gpu(cpu_bnlp)
-        _, stats_gpu, _, t_solve_gpu = timed_gpu_solve(gpu_bnlp; options...)
-        has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), stats_gpu.status)
-        results[k, 5] = length(has_converged)
-        results[k, 6] = mean(stats_gpu.iter[has_converged])
-        results[k, 7] = std(stats_gpu.iter[has_converged])
-        results[k, 8] = t_solve_gpu
+        if RUN_GPU
+            cpu_bnlp = ObjRHSBatchQuadraticModel(qps)
+            gpu_bnlp = to_gpu(cpu_bnlp)
+            _, stats_gpu, _, t_solve_gpu = timed_gpu_solve(gpu_bnlp; options...)
+            has_converged = findall(isequal(MadNLP.SOLVE_SUCCEEDED), stats_gpu.status)
+            results[k, 5] = length(has_converged)
+            results[k, 6] = mean(stats_gpu.iter[has_converged])
+            results[k, 7] = std(stats_gpu.iter[has_converged])
+            results[k, 8] = t_solve_gpu
+        else
+            results[k, 5:8] .= -1
+        end
     end
 
     return [cases results]
@@ -351,14 +367,18 @@ function benchmark_dcopf(cases, batches; cpu_solver, cpu_max_batch=batches[end],
 
         qps = build_dcopf_qps(qp, index, batches[end]; tau=tau)
         # CPU: the first instances of the largest batch, sequentially
-        cpu = timed_cpu_sequential(qps[1:min(length(qps), cpu_max_batch)];
-            linear_solver=cpu_solver, time_budget=cpu_time_budget, options...)
-        n_cpu = length(cpu[1])
+        cpu = RUN_CPU ? timed_cpu_sequential(qps[1:min(length(qps), cpu_max_batch)];
+            linear_solver=cpu_solver, time_budget=cpu_time_budget, options...) : nothing
+        n_cpu = cpu === nothing ? 0 : length(cpu[1])
         for (l, batch) in enumerate(batches)
             cpu_cols = shift+10*(l-1) .+ (1:6)
             gpu_cols = shift+10*(l-1) .+ (7:10)
             results[k, cpu_cols] .= batch <= n_cpu ? cpu_summary(cpu..., batch) : -1
             # GPU: the same instances as one batch
+            if !RUN_GPU
+                results[k, gpu_cols] .= -1
+                continue
+            end
             try
                 refresh_memory()
                 gpu_bnlp = to_gpu(ObjRHSBatchQuadraticModel(qps[1:batch]))
@@ -395,7 +415,7 @@ function decompose_timings(; cpu_solver)
             scaling=false,
         )
         mkpath("results")
-        writedlm(joinpath("results", "3-decompose-dcopf-$(case).csv"), results)
+        writedlm(results_path("3-decompose-dcopf-$(case)"), results)
     end
 end
 
@@ -463,7 +483,7 @@ function @main(args::Vector{String})
         results = benchmark_dcopf(cases, batches; cpu_solver=cpu_solver,
             cpu_max_batch=2^pargs.cpu_max_batch, cpu_time_budget=pargs.cpu_time_budget)
         mkpath("results")
-        writedlm(joinpath("results", "3-benchmark-dcopf.csv"), results)
+        writedlm(results_path("3-benchmark-dcopf"), results)
     elseif pargs.job == :decompose
         decompose_timings(; cpu_solver=cpu_solver)
     elseif pargs.job == :comp
@@ -482,7 +502,7 @@ function @main(args::Vector{String})
                 print_level=MadNLP.ERROR,
             )
             mkpath("results")
-            writedlm(joinpath("results", "3-benchmark-batch-$(tau).csv"), results)
+            writedlm(results_path("3-benchmark-batch-$(tau)"), results)
         end
     end
 end

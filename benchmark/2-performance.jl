@@ -1,7 +1,8 @@
 
 include("common.jl")
 
-using MIPLIB
+# MIPLIB (and its instance downloads) only for --benchmark=miplib
+any(==("--benchmark=miplib"), ARGS) && @eval using MIPLIB
 
 
 const NETLIB_PATH = fetch_netlib()
@@ -112,13 +113,13 @@ function benchmark_lps(cases, batches, load_instance; cpu_solver, cpu_max_batch=
             continue
         end
         # CPU: the first instances of the largest batch, sequentially
-        cpu = try
+        cpu = RUN_CPU ? try
             timed_cpu_sequential(qps[1:min(length(qps), cpu_max_batch)];
                 linear_solver=cpu_solver, time_budget=cpu_time_budget, options...)
         catch ex
             println("$(case) fails on CPU with message $(ex)")
             nothing
-        end
+        end : nothing
         n_cpu = cpu === nothing ? 0 : length(cpu[1])
         for (l, batch) in enumerate(batches)
             cpu_cols = shift+10*(l-1) .+ (1:6)
@@ -129,6 +130,10 @@ function benchmark_lps(cases, batches, load_instance; cpu_solver, cpu_max_batch=
                 results[k, cpu_cols] .= cpu_summary(cpu..., batch)
             end
             # GPU: the same instances as one batch
+            if !RUN_GPU
+                results[k, gpu_cols] .= -1
+                continue
+            end
             try
                 refresh_memory()
                 gpu_bnlp = to_gpu(ObjRHSBatchQuadraticModel(qps[1:batch]))
@@ -215,7 +220,7 @@ function @main(args::Vector{String})
             max_iter=300,
             regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
         )
-        writedlm(joinpath("results", "2-benchmark-netlib.csv"), results)
+        writedlm(results_path("2-benchmark-netlib"), results)
     elseif pargs.benchmark == :miplib
         cases = select_miplib_instance()
         mkpath("results")
@@ -231,7 +236,7 @@ function @main(args::Vector{String})
             max_iter=300,
             regularization = MadIPM.FixedRegularization(1e-8, -1e-8),
         )
-        writedlm(joinpath("results", "2-benchmark-miplib.csv"), results)
+        writedlm(results_path("2-benchmark-miplib"), results)
     end
     return
 end

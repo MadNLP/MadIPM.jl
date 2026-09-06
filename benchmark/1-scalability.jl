@@ -59,16 +59,22 @@ function benchmark_scalability(cases, batches; cpu_solver, cpu_max_batch=batches
         # Test pure scalability, do not change cost vector here.
         qps = build_qps(qp, batches[end]; shift_c=false)
         # CPU: the first instances of the largest batch, sequentially
-        cpu = timed_cpu_sequential(qps[1:min(length(qps), cpu_max_batch)];
-            linear_solver=cpu_solver, time_budget=cpu_time_budget, options...)
-        n_cpu = length(cpu[1])
+        cpu = RUN_CPU ? timed_cpu_sequential(qps[1:min(length(qps), cpu_max_batch)];
+            linear_solver=cpu_solver, time_budget=cpu_time_budget, options...) : nothing
+        n_cpu = cpu === nothing ? 0 : length(cpu[1])
         for (l, batch) in enumerate(batches)
-            results[k, shift+10*(l-1) .+ (1:6)] .= batch <= n_cpu ? cpu_summary(cpu..., batch) : -1
+            cpu_cols = shift+10*(l-1) .+ (1:6)
+            gpu_cols = shift+10*(l-1) .+ (7:10)
+            results[k, cpu_cols] .= batch <= n_cpu ? cpu_summary(cpu..., batch) : -1
             # GPU: the same instances as one batch
-            refresh_memory()
-            gpu_bnlp = to_gpu(ObjRHSBatchQuadraticModel(qps[1:batch]))
-            _, stats, t_init, t_solve = timed_gpu_solve(gpu_bnlp; cudss_pivot_epsilon=1e-8, options...)
-            results[k, shift+10*(l-1) .+ (7:10)] .= gpu_summary(stats, t_init, t_solve)
+            if RUN_GPU
+                refresh_memory()
+                gpu_bnlp = to_gpu(ObjRHSBatchQuadraticModel(qps[1:batch]))
+                _, stats, t_init, t_solve = timed_gpu_solve(gpu_bnlp; cudss_pivot_epsilon=1e-8, options...)
+                results[k, gpu_cols] .= gpu_summary(stats, t_init, t_solve)
+            else
+                results[k, gpu_cols] .= -1
+            end
         end
     end
 
@@ -142,7 +148,7 @@ function @main(args::Vector{String})
         regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
     )
     mkpath("results")
-    writedlm(joinpath("results", "1-scalability-netlib.csv"), results)
+    writedlm(results_path("1-scalability-netlib"), results)
 end
 
 

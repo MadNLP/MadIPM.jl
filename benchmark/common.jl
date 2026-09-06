@@ -5,7 +5,6 @@ using MadIPM, MadNLP
 using MadNLPHSL
 using HSL: LIBHSL_isfunctional
 using NLPModels
-using MadNLPGPU, CUDA, KernelAbstractions
 using Random, Distributions, SparseArrays, Memoize
 using Statistics
 using LinearAlgebra: BLAS
@@ -13,15 +12,30 @@ using SparseMatricesCOO: SparseMatrixCOO
 using QPSReader
 using Adapt
 
+# Which side runs: `--side=cpu`, `--side=gpu` or both (default). The CPU
+# baseline and the GPU batches can then run on different machines, each
+# writing a side-suffixed CSV that merge_results.jl joins. The blocks of the
+# side that does not run are -1. GPU packages are only loaded when needed, so
+# the CPU side runs on a machine without CUDA.
+const SIDE = let a = filter(startswith("--side="), ARGS)
+    isempty(a) ? :both : Symbol(split(a[end], "=")[2])
+end
+SIDE in (:cpu, :gpu, :both) || error("--side must be cpu, gpu or both, got $SIDE")
+const RUN_CPU = SIDE != :gpu
+const RUN_GPU = SIDE != :cpu
+RUN_GPU && @eval using MadNLPGPU, CUDA, KernelAbstractions
+
+results_path(name) = joinpath("results", SIDE == :both ? "$name.csv" : "$name-$SIDE.csv")
+
 import MadIPM.Models: LPData, QPData, ScalarModel, LinearModel, QuadraticModel,
     ObjRHSBatchQuadraticModel, operator_sparse_matrix
 const BQMS = MadIPM.Models.Scaling
 const BQMP = MadIPM.Models.Presolve
 
 function refresh_memory()
-    CUDA.reclaim()
+    RUN_GPU && CUDA.reclaim()
     GC.gc(true)
-    CUDA.reclaim()
+    RUN_GPU && CUDA.reclaim()
     return
 end
 
@@ -202,9 +216,11 @@ function _warmup(qp; linear_solver=Ma57Solver)
         max_iter=1,
         regularization = MadIPM.FixedRegularization(1e-10, -1e-10),
     )
-    timed_cpu_solve(qps[1]; linear_solver=linear_solver, warmup_options...)
-    gpu_bnlp = to_gpu(ObjRHSBatchQuadraticModel(qps))
-    timed_gpu_solve(gpu_bnlp; warmup_options...)
+    RUN_CPU && timed_cpu_solve(qps[1]; linear_solver=linear_solver, warmup_options...)
+    if RUN_GPU
+        gpu_bnlp = to_gpu(ObjRHSBatchQuadraticModel(qps))
+        timed_gpu_solve(gpu_bnlp; warmup_options...)
+    end
     return
 end
 
