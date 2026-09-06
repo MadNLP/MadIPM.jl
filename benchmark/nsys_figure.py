@@ -184,23 +184,32 @@ def draw(row, memory, t0, t1, title, out, width, show_memory=True):
     text_w = lambda text, size: len(text) * size * 0.58
     fits = lambda x0, x1, text, size: (x1 - x0) * pts_per_ms >= text_w(text, size)
 
-    # bars too narrow for their label get a leader label above the row, staggered
-    # over up to four levels when neighbours are close
-    inside, leaders, placed = set(), {}, []   # bar indices labelled inside; index -> level; (x, level) placed
+    # bars too narrow for their label get a leader label above the row; neighbouring
+    # bars of the same name share one label with a line to each bar; labels are
+    # staggered over up to four levels when they would collide
+    inside, groups = set(), []                # bar indices labelled inside; [name, bar indices, level]
     for i, r in enumerate(row):
         a, b = gclip(r)
-        if fits(ms(a), ms(b), short_name(r["name"]), 7):
+        n = short_name(r["name"])
+        if fits(ms(a), ms(b), n, 7):
             inside.add(i)
             continue
         if (ms(b) - ms(a)) * pts_per_ms < 1.5:
             continue                          # too thin to point at; the legend lists it
-        xc = (ms(a) + ms(b)) / 2
+        if groups and groups[-1][0] == n and not any(j in inside for j in range(groups[-1][1][-1] + 1, i)):
+            groups[-1][1].append(i)
+        else:
+            groups.append([n, [i], None])
+    placed = []                               # (x, level) of the labels placed
+    for g in groups:
+        xc = (ms(gclip(row[g[1][0]])[0]) + ms(gclip(row[g[1][-1]])[1])) / 2
         near = {lv for xp, lv in placed if abs(xp - xc) * pts_per_ms < 70}
         free = [lv for lv in range(4) if lv not in near]
         if free:
-            leaders[i] = free[0]
+            g[2] = free[0]
             placed.append((xc, free[0]))
-    top_pad = 0.75 + 0.38 * max(leaders.values()) if leaders else 0.15
+    groups = [g for g in groups if g[2] is not None]
+    top_pad = 0.75 + 0.38 * max(g[2] for g in groups) if groups else 0.15
 
     # rows, top to bottom: the projected ranges, then one thin row per memory copy kind
     by_kind = defaultdict(list)
@@ -241,15 +250,17 @@ def draw(row, memory, t0, t1, title, out, width, show_memory=True):
         a, b = gclip(r)
         x0, x1, n = ms(a), ms(b), short_name(r["name"])
         ax.add_patch(Rectangle((x0, y), max(x1 - x0, min_w), h, facecolor=color[n], edgecolor="white", linewidth=0.5))
-        if i in leaders:
-            xc = (x0 + x1) / 2
-            half = text_w(n, 6.5) / 2 / pts_per_ms      # keep the text inside the axes
-            xt = min(max(xc, half), span / 1e6 - half)
-            ax.annotate(n, xy=(xc, y + h), xytext=(xt, y + h + 0.3 + 0.38 * leaders[i]),
-                        ha="center", va="bottom", fontsize=6.5, annotation_clip=False,
-                        arrowprops=dict(arrowstyle="-", lw=0.5, color="0.4", shrinkA=0, shrinkB=0))
-        elif i in inside:
+        if i in inside:
             ax.text((x0 + x1) / 2, y + h / 2, n, ha="center", va="center", fontsize=7, clip_on=True)
+    for n, idx, level in groups:
+        x0, x1 = ms(gclip(row[idx[0]])[0]), ms(gclip(row[idx[-1]])[1])
+        half = text_w(n, 6.5) / 2 / pts_per_ms          # keep the text inside the axes
+        xt = min(max((x0 + x1) / 2, half), span / 1e6 - half)
+        yt = y + h + 0.3 + 0.38 * level
+        ax.text(xt, yt, n, ha="center", va="bottom", fontsize=6.5, clip_on=False)
+        for j in idx:
+            a, b = gclip(row[j])
+            ax.plot([xt, (ms(a) + ms(b)) / 2], [yt, y + h], linewidth=0.5, color="0.4", clip_on=False, zorder=1)
     idle = span - union_length([gclip(r) for r in row])
 
     # memory copies as ticks
