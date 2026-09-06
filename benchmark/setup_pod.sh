@@ -14,7 +14,8 @@ set -euo pipefail
 archive=${1:-$HOME/MadIPM.tar.gz}
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq && apt-get install -y -qq git curl tar > /dev/null
+SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+$SUDO apt-get update -qq && $SUDO apt-get install -y -qq git curl tar > /dev/null
 
 if [ ! -x "$HOME/.juliaup/bin/julia" ]; then
     curl -fsSL https://install.julialang.org | sh -s -- --yes --default-channel 1.12 > /dev/null
