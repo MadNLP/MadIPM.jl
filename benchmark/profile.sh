@@ -22,10 +22,12 @@ FLAG="$REPO_DIR/.isannotated"
 if [ ! -f "$FLAG" ]; then
     echo "annotating $REPO_DIR"
     cp "$BENCH_DIR/_sync_annotate.jl" "$REPO_DIR/src/_sync_annotate.jl"
+    # functions named *_kernel! are device code launched with @cuda (or their
+    # launchers) and must stay untouched: NVTX calls do not compile for the GPU
     find "$REPO_DIR/src" -name '*.jl' -not -path '*/models/*' -not -name '_sync_annotate.jl' \
-        -exec sed -i 's/^function /MadIPM.@sync_annotate function /' {} +
+        -exec sed -i '/^function [^(]*_kernel!(/! s/^function /MadIPM.@sync_annotate function /' {} +
     find "$REPO_DIR/ext/MadIPMCUDAExt" -name '*.jl' \
-        -exec sed -i 's/^function /MadIPM.@sync_annotate function /' {} +
+        -exec sed -i '/^function [^(]*_kernel!(/! s/^function /MadIPM.@sync_annotate function /' {} +
     # header insertions are guarded so a run that failed before the flag was
     # written cannot double them
     grep -q '_sync_annotate' "$REPO_DIR/src/MadIPM.jl" || sed -i '/^module MadIPM$/a\
