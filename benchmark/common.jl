@@ -8,6 +8,7 @@ using NLPModels
 using MadNLPGPU, CUDA, KernelAbstractions
 using Random, Distributions, SparseArrays, Memoize
 using Statistics
+using LinearAlgebra: BLAS
 using SparseMatricesCOO: SparseMatrixCOO
 using QPSReader
 using Adapt
@@ -144,18 +145,30 @@ function timed_gpu_solve(gpu_bnlp; options...)
     return solver, stats, t_init, t_solve
 end
 
+# Progress line that reaches the log file immediately. Julia's stdio is drained
+# by its event loop, which a loop of long ccalls never yields to, so without the
+# flush a redirected log stays empty until the process exits.
+function progress(msg)
+    @info msg
+    flush(stderr)
+    return
+end
+
 # Sequential CPU baseline: solve the instances one after the other, each with
 # its own solver, keeping per-instance wall times. Summing over the first b
 # instances then gives the sequential cost of exactly the problems a batch of
-# size b holds.
-function timed_cpu_sequential(qps; linear_solver, options...)
-    n = length(qps)
-    stats = Vector{Any}(undef, n)
-    t_init = zeros(n)
-    t_solve = zeros(n)
-    for (i, qp) in enumerate(qps)
-        _, stats[i], t_init[i], t_solve[i] =
-            timed_cpu_solve(qp; linear_solver=linear_solver, options...)
+# size b holds. Stops after the instance that takes the accumulated time past
+# `time_budget` seconds; the returned vectors hold only the solved instances.
+function timed_cpu_sequential(qps; linear_solver, time_budget=Inf, options...)
+    stats = Any[]
+    t_init = Float64[]
+    t_solve = Float64[]
+    for qp in qps
+        _, s, ti, ts = timed_cpu_solve(qp; linear_solver=linear_solver, options...)
+        push!(stats, s)
+        push!(t_init, ti)
+        push!(t_solve, ts)
+        sum(t_init) + sum(t_solve) >= time_budget && break
     end
     return stats, t_init, t_solve
 end

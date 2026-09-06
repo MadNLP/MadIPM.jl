@@ -40,15 +40,17 @@ end
 #   GPU solving the same instances 1:b as one batch: converged count, mean iter,
 #       init time, solve time.
 # Both sides solve the same presolved, scaled, standard-form instances; all
-# times are wall clock. The CPU solves at most `cpu_max_batch` instances;
-# CPU blocks of larger batches are -1 (not measured, never extrapolated).
-function benchmark_scalability(cases, batches; cpu_solver, cpu_max_batch=batches[end], options...)
+# times are wall clock. The CPU solves at most `cpu_max_batch` instances and
+# stops early once `cpu_time_budget` seconds are used up; CPU blocks of larger
+# batches are -1 (not measured, never extrapolated).
+function benchmark_scalability(cases, batches; cpu_solver, cpu_max_batch=batches[end],
+                               cpu_time_budget=Inf, options...)
     shift = 3
     m = shift + 10*length(batches)
     results = zeros(length(cases), m)
 
     for (k, case) in enumerate(cases)
-        @info case
+        progress(case)
         refresh_memory()
         qp = load_instance(case)
         results[k, 1] = NLPModels.get_nvar(qp)
@@ -57,8 +59,9 @@ function benchmark_scalability(cases, batches; cpu_solver, cpu_max_batch=batches
         # Test pure scalability, do not change cost vector here.
         qps = build_qps(qp, batches[end]; shift_c=false)
         # CPU: the first instances of the largest batch, sequentially
-        n_cpu = min(length(qps), cpu_max_batch)
-        cpu = timed_cpu_sequential(qps[1:n_cpu]; linear_solver=cpu_solver, options...)
+        cpu = timed_cpu_sequential(qps[1:min(length(qps), cpu_max_batch)];
+            linear_solver=cpu_solver, time_budget=cpu_time_budget, options...)
+        n_cpu = length(cpu[1])
         for (l, batch) in enumerate(batches)
             results[k, shift+10*(l-1) .+ (1:6)] .= batch <= n_cpu ? cpu_summary(cpu..., batch) : -1
             # GPU: the same instances as one batch
@@ -79,6 +82,8 @@ function parse_args(args::Vector{String})
     tol = 1e-6
     cpu_solver = "auto"
     cpu_max_batch = nothing   # log2 of the largest batch the CPU solves sequentially
+    cpu_time_budget = Inf     # seconds of sequential CPU solves per instance
+    blas_threads = 1          # BLAS threads for the CPU baseline
     for arg in args
         if startswith(arg, "--tol=")
             tol = parse(Float64, split(arg, "=")[2])
@@ -90,6 +95,10 @@ function parse_args(args::Vector{String})
             cpu_solver = String(split(arg, "=")[2])
         elseif startswith(arg, "--cpu-max-batch=")
             cpu_max_batch = parse(Int, split(arg, "=")[2])
+        elseif startswith(arg, "--cpu-time-budget=")
+            cpu_time_budget = parse(Float64, split(arg, "=")[2])
+        elseif startswith(arg, "--blas-threads=")
+            blas_threads = parse(Int, split(arg, "=")[2])
         end
     end
     return (
@@ -98,6 +107,8 @@ function parse_args(args::Vector{String})
         device=device,
         cpu_solver=cpu_solver,
         cpu_max_batch=something(cpu_max_batch, max_batch),
+        cpu_time_budget=cpu_time_budget,
+        blas_threads=blas_threads,
     )
 end
 
@@ -109,19 +120,22 @@ function @main(args::Vector{String})
         CUDA.device!(pargs.device)
     end
     cpu_solver = cpu_linear_solver(pargs.cpu_solver; preferred=Ma57Solver)
-    @info "CPU linear solver: $(cpu_solver)"
+    BLAS.set_num_threads(pargs.blas_threads)
+    progress("CPU linear solver: $(cpu_solver), BLAS threads: $(BLAS.get_num_threads()), " *
+             "CPU max batch: $(2^pargs.cpu_max_batch), CPU time budget: $(pargs.cpu_time_budget)s")
 
-    @info "Warmup"
+    progress("Warmup")
     warmup(WARMUP_INSTANCE; cpu_solver=cpu_solver)
 
     batches = [2^i for i in 0:pargs.max_batch]
     cases = select_netlib()
-    @info "#instances: $(length(cases))"
+    progress("#instances: $(length(cases))")
     results = benchmark_scalability(
         cases,
         batches;
         cpu_solver=cpu_solver,
         cpu_max_batch=2^pargs.cpu_max_batch,
+        cpu_time_budget=pargs.cpu_time_budget,
         print_level=MadNLP.ERROR,
         tol=pargs.tol,
         max_iter=500,

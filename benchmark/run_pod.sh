@@ -16,7 +16,7 @@ rm -f "$HOME/bench/DONE"
 
 if [ $# -eq 0 ]; then
     nohup bash -c '
-        julia --project=. 2-performance.jl --benchmark=netlib --cpu-max-batch=4 > ~/bench/2-performance.log 2>&1
+        julia --project=. 2-performance.jl --benchmark=netlib --cpu-max-batch=4 --cpu-time-budget=300 > ~/bench/2-performance.log 2>&1
         julia --project=. 1-scalability.jl > ~/bench/1-scalability.log 2>&1
         echo "ALL DONE $(date -u +%FT%TZ)" > ~/bench/DONE
     ' > "$HOME/bench/runner.log" 2>&1 &

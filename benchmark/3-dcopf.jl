@@ -271,7 +271,7 @@ function solve_batch_dcopf(cases, nbatch, tau; cpu_solver, options...)
     results = zeros(length(cases), 8)
 
     for (k, case) in enumerate(cases)
-        @info case
+        progress(case)
         refresh_memory()
         base_qp, nbus = load_instance(case)
         n = NLPModels.get_nvar(base_qp)
@@ -318,9 +318,11 @@ end
 #   GPU solving the same instances 1:b as one batch: converged count, mean iter,
 #       init time, solve time.
 # Both sides solve the same perturbed instances; all times are wall clock. The
-# CPU solves at most `cpu_max_batch` instances; CPU blocks of larger batches
-# are -1 (not measured, never extrapolated).
-function benchmark_dcopf(cases, batches; cpu_solver, cpu_max_batch=batches[end], tau=0.1)
+# CPU solves at most `cpu_max_batch` instances and stops early once
+# `cpu_time_budget` seconds are used up; CPU blocks of larger batches are -1
+# (not measured, never extrapolated).
+function benchmark_dcopf(cases, batches; cpu_solver, cpu_max_batch=batches[end],
+                         cpu_time_budget=Inf, tau=0.1)
     shift = 3
     m = shift + 10*length(batches)
     results = zeros(length(cases), m)
@@ -334,7 +336,7 @@ function benchmark_dcopf(cases, batches; cpu_solver, cpu_max_batch=batches[end],
     )
 
     for (k, case) in enumerate(cases)
-        @info case
+        progress(case)
         refresh_memory()
         # Load instance
         base_qp, nbus = load_instance(case)
@@ -349,8 +351,9 @@ function benchmark_dcopf(cases, batches; cpu_solver, cpu_max_batch=batches[end],
 
         qps = build_dcopf_qps(qp, index, batches[end]; tau=tau)
         # CPU: the first instances of the largest batch, sequentially
-        n_cpu = min(length(qps), cpu_max_batch)
-        cpu = timed_cpu_sequential(qps[1:n_cpu]; linear_solver=cpu_solver, options...)
+        cpu = timed_cpu_sequential(qps[1:min(length(qps), cpu_max_batch)];
+            linear_solver=cpu_solver, time_budget=cpu_time_budget, options...)
+        n_cpu = length(cpu[1])
         for (l, batch) in enumerate(batches)
             cpu_cols = shift+10*(l-1) .+ (1:6)
             gpu_cols = shift+10*(l-1) .+ (7:10)
@@ -381,7 +384,7 @@ function decompose_timings(; cpu_solver)
         ("case6515rte.m", [2^i for i in 0:8]),
         ("case_ACTIVSg10k.m", [2^i for i in 0:8]),
     ]
-        @info case
+        progress(case)
         results = analyze_instance(
             case,
             batches;
@@ -404,6 +407,8 @@ function parse_args(args::Vector{String})
     job = :comp
     cpu_solver = "auto"
     cpu_max_batch = nothing   # log2 of the largest batch the CPU solves sequentially
+    cpu_time_budget = Inf     # seconds of sequential CPU solves per instance
+    blas_threads = 1          # BLAS threads for the CPU baseline
     for arg in args
         if startswith(arg, "--tol=")
             tol = parse(Float64, split(arg, "=")[2])
@@ -417,6 +422,10 @@ function parse_args(args::Vector{String})
             cpu_solver = String(split(arg, "=")[2])
         elseif startswith(arg, "--cpu-max-batch=")
             cpu_max_batch = parse(Int, split(arg, "=")[2])
+        elseif startswith(arg, "--cpu-time-budget=")
+            cpu_time_budget = parse(Float64, split(arg, "=")[2])
+        elseif startswith(arg, "--blas-threads=")
+            blas_threads = parse(Int, split(arg, "=")[2])
         end
     end
     return (
@@ -426,6 +435,8 @@ function parse_args(args::Vector{String})
         device=device,
         cpu_solver=cpu_solver,
         cpu_max_batch=something(cpu_max_batch, max_batch),
+        cpu_time_budget=cpu_time_budget,
+        blas_threads=blas_threads,
     )
 end
 
@@ -437,17 +448,20 @@ function @main(args::Vector{String})
         CUDA.device!(pargs.device)
     end
     cpu_solver = cpu_linear_solver(pargs.cpu_solver; preferred=Ma57Solver)
-    @info "CPU linear solver: $(cpu_solver)"
+    BLAS.set_num_threads(pargs.blas_threads)
+    progress("CPU linear solver: $(cpu_solver), BLAS threads: $(BLAS.get_num_threads()), " *
+             "CPU max batch: $(2^pargs.cpu_max_batch), CPU time budget: $(pargs.cpu_time_budget)s")
 
-    @info "Warmup"
+    progress("Warmup")
     warmup(WARMUP_INSTANCE; cpu_solver=cpu_solver)
 
     cases = select_dcopf_instances()
 
     if pargs.job == :benchmark
         batches = [2^i for i in 0:pargs.max_batch]
-        @info "#instances: $(length(cases))"
-        results = benchmark_dcopf(cases, batches; cpu_solver=cpu_solver, cpu_max_batch=2^pargs.cpu_max_batch)
+        progress("#instances: $(length(cases))")
+        results = benchmark_dcopf(cases, batches; cpu_solver=cpu_solver,
+            cpu_max_batch=2^pargs.cpu_max_batch, cpu_time_budget=pargs.cpu_time_budget)
         mkpath("results")
         writedlm(joinpath("results", "3-benchmark-dcopf.csv"), results)
     elseif pargs.job == :decompose
