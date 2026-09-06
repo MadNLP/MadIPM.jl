@@ -16,8 +16,8 @@ waits for the asynchronous GPU. The row holds one level: by default the solver
 phases in PHASES, whichever nesting level they sit at (`--ranges` picks other
 names; `--depth N` shows one nesting level instead, e.g. `--depth 5` in a
 MadIPM profile is the level with factorize_system!/prediction_step!/...).
-Below it, one thin row each for host-to-device, device-to-host and
-device-to-device copies, drawn as ticks since they last microseconds. Bars are
+Below it, one thin row each for host-to-device and device-to-host copies,
+drawn as ticks since they last microseconds. Bars are
 labelled inside when they fit and with a leader above the row otherwise; the
 legend gives each phase's GPU time and share of the window. Needs matplotlib.
 """
@@ -33,6 +33,7 @@ from collections import defaultdict
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
 # default row: one bar per call of these functions (module prefixes ignored)
@@ -44,8 +45,7 @@ PHASE_COLORS = {
     "evaluate_model!": "#41ab5d",
 }
 IDLE_COLOR = "#e6e6e6"
-MEMORY_ROWS = [(1, "HtoD memcpy", "#d62728"), (2, "DtoH memcpy", "#7b3294"),
-               (8, "DtoD memcpy", "0.55")]   # copyKind ids of the export
+MEMORY_ROWS = [(1, "HtoD", "#d62728"), (2, "DtoH", "#7b3294")]   # copyKind ids of the export   # copyKind ids of the export
 
 
 # ---------------------------------------------------------------- database ----
@@ -173,8 +173,15 @@ def draw(row, memory, t0, t1, title, out, width, show_memory=True):
     span = t1 - t0
     ms = lambda ns: (ns - t0) / 1e6           # window-relative milliseconds
     gclip = lambda r: (max(r["gstart"], t0), min(r["gend"], t1))
-    pts_per_ms = width * 72 * 0.84 / (span / 1e6)
-    fits = lambda x0, x1, text, size: (x1 - x0) * pts_per_ms >= len(text) * size * 0.58
+
+    # geometry in inches: fixed margins, rows of fixed height, the axes fill the rest
+    left_in, right_in, bottom_in = 0.4, 0.06, 0.38
+    top_in = 0.22 if title else 0.06
+    gpu_in = 0.3 if width <= 5 else 0.45      # GPU row height; memory rows are 0.42 of it
+    axes_w = width - left_in - right_in
+    pts_per_ms = axes_w * 72 / (span / 1e6)
+    text_w = lambda text, size: len(text) * size * 0.58
+    fits = lambda x0, x1, text, size: (x1 - x0) * pts_per_ms >= text_w(text, size)
 
     # bars too narrow for their label get a leader label above the row, staggered
     # over up to four levels when neighbours are close
@@ -192,27 +199,19 @@ def draw(row, memory, t0, t1, title, out, width, show_memory=True):
         if free:
             leaders[i] = free[0]
             placed.append((xc, free[0]))
-    top_pad = 0.5 + 0.38 * max(leaders.values()) if leaders else 0.15
+    top_pad = 0.75 + 0.38 * max(leaders.values()) if leaders else 0.15
 
     # rows, top to bottom: the projected ranges, then one thin row per memory copy kind
     by_kind = defaultdict(list)
     for m in memory:
         by_kind[m["kind"]].append(m)
-    mem_rows = [(k, lbl, col) for k, lbl, col in MEMORY_ROWS] + \
-        [(k, f"copy kind {k}", "0.7") for k in sorted(by_kind) if k not in {k for k, _, _ in MEMORY_ROWS}]
+    mem_rows = MEMORY_ROWS
     lanes = [("gpu", "GPU", 1.0)] + ([(k, lbl, 0.42) for k, lbl, _ in mem_rows] if show_memory else [])
     gap, y_of, cur = 0.22, {}, 0.0
     for key, _, h in reversed(lanes):
         y_of[key] = cur
         cur += h + gap
-    units = cur - gap + gap + top_pad
-    fig_w, fig_h = width, 0.45 * units / 0.77   # GPU row 0.45 in tall; the axes fill ~77% of the height
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-    ax.set_xlim(0, span / 1e6)
-    ax.set_ylim(-gap, units - gap)
-    min_w = 0.8 / pts_per_ms                  # ticks at least 0.8 pt wide
-
-    # projected ranges
+    units = cur - gap + gap + top_pad         # data units from the bottom gap to the top of the label space
     order, totals = [], defaultdict(float)
     for r in row:
         n = short_name(r["name"])
@@ -220,6 +219,19 @@ def draw(row, memory, t0, t1, title, out, width, show_memory=True):
             order.append(n)
         a, b = gclip(r)
         totals[n] += b - a
+    ncol = 1 if width <= 5 else 2
+    n_lines = max(-(-(len(order) + 1) // ncol), len(mem_rows) if show_memory else 0)
+    legend_in = 0.125 * (n_lines + 1) + 0.06  # legend area below the x label: title + entries at 6 pt
+    axes_h = gpu_in * units
+    fig_h = top_in + axes_h + bottom_in + legend_in
+    fig, ax = plt.subplots(figsize=(width, fig_h))
+    fig.subplots_adjust(left=left_in / width, right=1 - right_in / width,
+                        bottom=(bottom_in + legend_in) / fig_h, top=1 - top_in / fig_h)
+    ax.set_xlim(0, span / 1e6)
+    ax.set_ylim(-gap, units - gap)
+    min_w = 0.8 / pts_per_ms                  # ticks at least 0.8 pt wide
+
+    # projected ranges
     tab10 = plt.get_cmap("tab10")
     color = {n: PHASE_COLORS.get(n, tab10(i % 10)) for i, n in enumerate(order)}
     y, h = y_of["gpu"], 1.0
@@ -230,7 +242,9 @@ def draw(row, memory, t0, t1, title, out, width, show_memory=True):
         ax.add_patch(Rectangle((x0, y), max(x1 - x0, min_w), h, facecolor=color[n], edgecolor="white", linewidth=0.3))
         if i in leaders:
             xc = (x0 + x1) / 2
-            ax.annotate(n, xy=(xc, y + h), xytext=(xc, y + h + 0.3 + 0.38 * leaders[i]),
+            half = text_w(n, 6.5) / 2 / pts_per_ms      # keep the text inside the axes
+            xt = min(max(xc, half), span / 1e6 - half)
+            ax.annotate(n, xy=(xc, y + h), xytext=(xt, y + h + 0.3 + 0.38 * leaders[i]),
                         ha="center", va="bottom", fontsize=6.5, annotation_clip=False,
                         arrowprops=dict(arrowstyle="-", lw=0.5, color="0.4", shrinkA=0, shrinkB=0))
         elif i in inside:
@@ -238,37 +252,43 @@ def draw(row, memory, t0, t1, title, out, width, show_memory=True):
     idle = span - union_length([gclip(r) for r in row])
 
     # memory copies as ticks
-    labels = {"gpu": "GPU"}
     if show_memory:
         for k, lbl, col in mem_rows:
             y, h = y_of[k], 0.42
             for m in by_kind.get(k, []):
                 x0, x1 = ms(max(m["start"], t0)), ms(min(m["end"], t1))
                 ax.add_patch(Rectangle((x0, y), max(x1 - x0, min_w), h, facecolor=col, edgecolor="none"))
-            n = len(by_kind.get(k, []))
-            labels[k] = f"{lbl}  ×{n}" + (f", {fmt_bytes(sum(m['bytes'] for m in by_kind[k]))}" if n else "")
 
     # axes, titles
     ax.set_yticks([y_of[k] + h / 2 for k, _, h in lanes])
-    ax.set_yticklabels([labels[k] for k, _, _ in lanes], fontsize=7)
-    ax.set_xlabel(f"time (ms) from {t0 / 1e9:.3f} s on the Nsight timeline", fontsize=8)
-    ax.tick_params(axis="x", labelsize=7)
-    ax.tick_params(axis="y", length=0)
-    ax.set_title(title, fontsize=9)
-    for s in ("top", "right", "left"):
-        ax.spines[s].set_visible(False)
+    ax.set_yticklabels([lbl for _, lbl, _ in lanes], fontsize=7)
+    ax.set_xlabel("time (ms)", fontsize=7, labelpad=2)
+    ax.tick_params(axis="x", labelsize=6.5, pad=2)
+    ax.tick_params(axis="y", length=0, pad=3)
+    if title:
+        ax.set_title(title, fontsize=8)
+    for sp in ("top", "right", "left"):
+        ax.spines[sp].set_visible(False)
 
-    # legend below the axes: GPU time per phase and idle
-    below = -0.55 / (0.77 * fig_h)            # ~0.55 in under the axes, in axes fraction
+    # legends in the reserved area below the x label: GPU time per phase (left), copies per kind (right)
+    ytop = legend_in / fig_h                  # top of the legend area, figure fraction
+    style = dict(fontsize=6, title_fontsize=6.5, frameon=False, handlelength=1.2, handletextpad=0.5,
+                 borderaxespad=0, labelspacing=0.3)
     by_time = sorted(order, key=lambda n: -totals[n])
+    fmt_ms = lambda ns: f"{ns / 1e6:.1f} ms" if ns < 10e6 else f"{ns / 1e6:.0f} ms"
     handles = [Rectangle((0, 0), 1, 1, facecolor=color[n]) for n in by_time] + [Rectangle((0, 0), 1, 1, facecolor=IDLE_COLOR)]
-    texts = [f"{n}  {totals[n] / 1e6:.1f} ms ({100 * totals[n] / span:.0f}%)" for n in by_time] \
-        + [f"GPU idle or other  {idle / 1e6:.1f} ms ({100 * idle / span:.0f}%)"]
-    ax.legend(handles, texts, title="GPU time", fontsize=6.5, title_fontsize=7, loc="upper left",
-              bbox_to_anchor=(0.0, below), frameon=False, ncol=2)
-    fig.savefig(out, dpi=200, bbox_inches="tight")
-    print(f"wrote {out}: {len(row)} projected bars ({', '.join(f'{n} {totals[n] / 1e6:.1f} ms' for n in order)}), "
-          f"idle {idle / 1e6:.1f} ms; memory: " + ", ".join(f"{lbl} ×{len(by_kind.get(k, []))}" for k, lbl, _ in mem_rows))
+    texts = [f"{n}  {fmt_ms(totals[n])} ({100 * totals[n] / span:.0f}%)" for n in by_time] \
+        + [f"idle or other  {fmt_ms(idle)} ({100 * idle / span:.0f}%)"]
+    fig.legend(handles, texts, title="GPU time", loc="upper left", bbox_to_anchor=(0.01, ytop), ncol=ncol, **style)
+    if show_memory:
+        fig.legend([Line2D([], [], color=col, linewidth=1.2) for _, _, col in mem_rows],
+                   [f"{lbl}  ×{len(by_kind.get(k, []))}, {fmt_bytes(sum(m['bytes'] for m in by_kind.get(k, [])))}"
+                    for k, lbl, _ in mem_rows],
+                   title="memory copies", loc="upper right", bbox_to_anchor=(0.99, ytop), **style)
+    fig.savefig(out, dpi=300)
+    print(f"wrote {out} ({width} in wide): {len(row)} projected bars ({', '.join(f'{n} {totals[n] / 1e6:.1f} ms' for n in order)}), "
+          f"idle {idle / 1e6:.1f} ms; window starts at {t0 / 1e9:.3f} s; copies: "
+          + ", ".join(f"{lbl} ×{len(by_kind.get(k, []))}" for k, lbl, _ in mem_rows))
 
 
 def main():
@@ -281,8 +301,8 @@ def main():
                    help="comma-separated function names for the row (default: the solver phases)")
     p.add_argument("--depth", type=int, default=None, help="show one NVTX nesting level instead of --ranges")
     p.add_argument("--lag", type=float, default=5.0, help="seconds before the window to look for host ranges whose GPU work falls in it")
-    p.add_argument("--title", default=None)
-    p.add_argument("--width", type=float, default=9.0, help="figure width in inches")
+    p.add_argument("--title", default=None, help="title above the axes (default none: the caption says it)")
+    p.add_argument("--width", type=float, default=3.4, help="figure width in inches (default: one column of a two-column paper)")
     p.add_argument("--no-memory", action="store_true", help="omit the memory copy rows")
     a = p.parse_args()
 
@@ -296,8 +316,7 @@ def main():
         print(f"note: {nested} nested ranges hidden behind their outer range")
     stem = os.path.splitext(os.path.basename(a.report))[0]
     out = a.out or f"{stem}-{a.start:.3f}-{a.end:.3f}.pdf"
-    title = a.title or f"{stem}: {a.start:.3f} s to {a.end:.3f} s"
-    draw(row, memory, t0, t1, title, out, a.width, show_memory=not a.no_memory)
+    draw(row, memory, t0, t1, a.title, out, a.width, show_memory=not a.no_memory)
 
 
 if __name__ == "__main__":
