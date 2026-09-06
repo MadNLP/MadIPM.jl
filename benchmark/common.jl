@@ -3,6 +3,7 @@ using DelimitedFiles
 using Printf
 using MadIPM, MadNLP
 using MadNLPHSL
+using HSL: LIBHSL_isfunctional
 using NLPModels
 using MadNLPGPU, CUDA, KernelAbstractions
 using Random, Distributions, SparseArrays, Memoize
@@ -90,6 +91,22 @@ function build_qps(base_qp, batch_size; shift_c=true, shift_b=false)
 end
 
 to_gpu(bnlp) = Adapt.adapt(CuArray, bnlp)
+
+# CPU linear solver for the baseline, from a `--cpu-solver=` value: mumps,
+# ma27, ma57, or auto (`preferred` when a licensed libHSL is available,
+# otherwise MUMPS, which ships with MadNLP).
+function cpu_linear_solver(name::AbstractString; preferred=Ma57Solver)
+    key = lowercase(name)
+    key == "mumps" && return MadNLP.MumpsSolver
+    if key == "auto"
+        return LIBHSL_isfunctional() ? preferred : MadNLP.MumpsSolver
+    end
+    if key in ("ma27", "ma57")
+        LIBHSL_isfunctional() || error("--cpu-solver=$name needs a licensed libHSL; LIBHSL_isfunctional() is false")
+        return key == "ma27" ? Ma27Solver : Ma57Solver
+    end
+    error("unknown --cpu-solver=$name; expected mumps, ma27, ma57 or auto")
+end
 
 #=
     Timing

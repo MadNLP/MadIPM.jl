@@ -10,9 +10,9 @@ const WARMUP_INSTANCE = "ADLITTLE.SIF"
     return qps_model(qpdat)
 end
 
-function warmup(instance)
+function warmup(instance; cpu_solver)
     qp = load_instance(instance)
-    _warmup(qp; linear_solver=Ma57Solver)
+    _warmup(qp; linear_solver=cpu_solver)
     return
 end
 
@@ -41,7 +41,7 @@ end
 #       init time, solve time.
 # Both sides solve the same presolved, scaled, standard-form instances; all
 # times are wall clock.
-function benchmark_scalability(cases, batches; options...)
+function benchmark_scalability(cases, batches; cpu_solver, options...)
     shift = 3
     m = shift + 10*length(batches)
     results = zeros(length(cases), m)
@@ -56,7 +56,7 @@ function benchmark_scalability(cases, batches; options...)
         # Test pure scalability, do not change cost vector here.
         qps = build_qps(qp, batches[end]; shift_c=false)
         # CPU: every instance of the largest batch, sequentially
-        cpu = timed_cpu_sequential(qps; linear_solver=Ma57Solver, options...)
+        cpu = timed_cpu_sequential(qps; linear_solver=cpu_solver, options...)
         for (l, batch) in enumerate(batches)
             results[k, shift+10*(l-1) .+ (1:6)] .= cpu_summary(cpu..., batch)
             # GPU: the same instances as one batch
@@ -75,6 +75,7 @@ function parse_args(args::Vector{String})
     max_batch = 12
     device = nothing
     tol = 1e-6
+    cpu_solver = "auto"
     for arg in args
         if startswith(arg, "--tol=")
             tol = parse(Float64, split(arg, "=")[2])
@@ -82,12 +83,15 @@ function parse_args(args::Vector{String})
             max_batch = parse(Int, split(arg, "=")[2])
         elseif startswith(arg, "--device=")
             device = parse(Int, split(arg, "=")[2])
+        elseif startswith(arg, "--cpu-solver=")
+            cpu_solver = String(split(arg, "=")[2])
         end
     end
     return (
         max_batch=max_batch,
         tol=tol,
         device=device,
+        cpu_solver=cpu_solver,
     )
 end
 
@@ -98,9 +102,11 @@ function @main(args::Vector{String})
     if !isnothing(pargs.device)
         CUDA.device!(pargs.device)
     end
+    cpu_solver = cpu_linear_solver(pargs.cpu_solver; preferred=Ma57Solver)
+    @info "CPU linear solver: $(cpu_solver)"
 
     @info "Warmup"
-    warmup(WARMUP_INSTANCE)
+    warmup(WARMUP_INSTANCE; cpu_solver=cpu_solver)
 
     batches = [2^i for i in 0:pargs.max_batch]
     cases = select_netlib()
@@ -108,6 +114,7 @@ function @main(args::Vector{String})
     results = benchmark_scalability(
         cases,
         batches;
+        cpu_solver=cpu_solver,
         print_level=MadNLP.ERROR,
         tol=pargs.tol,
         max_iter=500,

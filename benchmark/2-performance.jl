@@ -87,7 +87,7 @@ end
 #       init time, solve time.
 # Both sides solve the same presolved, scaled, standard-form instances, cost
 # perturbations included; all times are wall clock. Failures are marked -1.
-function benchmark_lps(cases, batches, load_instance; options...)
+function benchmark_lps(cases, batches, load_instance; cpu_solver, options...)
     shift = 3
     m = shift + 10*length(batches)
     results = zeros(length(cases), m)
@@ -109,7 +109,7 @@ function benchmark_lps(cases, batches, load_instance; options...)
         end
         # CPU: every instance of the largest batch, sequentially
         cpu = try
-            timed_cpu_sequential(qps; linear_solver=Ma27Solver, options...)
+            timed_cpu_sequential(qps; linear_solver=cpu_solver, options...)
         catch ex
             println("$(case) fails on CPU with message $(ex)")
             nothing
@@ -143,6 +143,7 @@ function parse_args(args::Vector{String})
     device = nothing
     tol = 1e-6
     benchmark = :netlib
+    cpu_solver = "auto"
     for arg in args
         if startswith(arg, "--tol=")
             tol = parse(Float64, split(arg, "=")[2])
@@ -152,6 +153,8 @@ function parse_args(args::Vector{String})
             device = parse(Int, split(arg, "=")[2])
         elseif startswith(arg, "--benchmark=")
             benchmark = Symbol(split(arg, "=")[2])
+        elseif startswith(arg, "--cpu-solver=")
+            cpu_solver = String(split(arg, "=")[2])
         end
     end
     return (
@@ -159,6 +162,7 @@ function parse_args(args::Vector{String})
         tol=tol,
         device=device,
         benchmark=benchmark,
+        cpu_solver=cpu_solver,
     )
 end
 
@@ -169,9 +173,11 @@ function @main(args::Vector{String})
     if !isnothing(pargs.device)
         CUDA.device!(pargs.device)
     end
+    cpu_solver = cpu_linear_solver(pargs.cpu_solver; preferred=Ma27Solver)
+    @info "CPU linear solver: $(cpu_solver)"
 
     @info "Warmup"
-    _warmup(load_netlib_instance(WARMUP_INSTANCE); linear_solver=Ma27Solver)
+    _warmup(load_netlib_instance(WARMUP_INSTANCE); linear_solver=cpu_solver)
 
     batches = [2^i for i in 0:pargs.max_batch]
     if pargs.benchmark == :netlib
@@ -181,6 +187,7 @@ function @main(args::Vector{String})
             cases,
             batches,
             load_netlib_instance;
+            cpu_solver=cpu_solver,
             print_level=MadNLP.ERROR,
             tol=pargs.tol,
             max_iter=300,
@@ -194,6 +201,7 @@ function @main(args::Vector{String})
             cases,
             batches,
             load_miplib_instance;
+            cpu_solver=cpu_solver,
             print_level=MadNLP.ERROR,
             tol=pargs.tol,
             max_iter=300,

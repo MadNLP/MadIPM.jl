@@ -202,13 +202,13 @@ function load_instance(case)
     return opt.qp, nbus
 end
 
-function warmup(instance)
+function warmup(instance; cpu_solver)
     qp, _ = load_instance(instance)
-    _warmup(qp)
+    _warmup(qp; linear_solver=cpu_solver)
     return
 end
 
-function analyze_instance(case, batches; tau=0.0, options...)
+function analyze_instance(case, batches; cpu_solver, tau=0.0, options...)
     results = zeros(length(batches) + 1, 6)
     # Load instance
     base_qp, nbus = load_instance(case)
@@ -224,7 +224,7 @@ function analyze_instance(case, batches; tau=0.0, options...)
     # batch; the step and factorization are timed from a fresh initial point
     # on both sides.
     cpu_solver, stats, t_init_cpu, t_solve_cpu =
-        timed_cpu_solve(qps[1]; linear_solver=Ma57Solver, options...)
+        timed_cpu_solve(qps[1]; linear_solver=cpu_solver, options...)
     MadIPM.initialize!(cpu_solver)
     t_factorization_cpu = @elapsed begin
         MadIPM.factorize_system!(cpu_solver)
@@ -267,7 +267,7 @@ function analyze_instance(case, batches; tau=0.0, options...)
     return results
 end
 
-function solve_batch_dcopf(cases, nbatch, tau; options...)
+function solve_batch_dcopf(cases, nbatch, tau; cpu_solver, options...)
     results = zeros(length(cases), 8)
 
     for (k, case) in enumerate(cases)
@@ -286,7 +286,7 @@ function solve_batch_dcopf(cases, nbatch, tau; options...)
         # times cover every instance, converged or not: an instance that runs
         # to the iteration limit costs its iterations on either side.
         # CPU
-        cpu_runs = [timed_cpu_solve(qp_i; linear_solver=Ma57Solver, options...) for qp_i in qps]
+        cpu_runs = [timed_cpu_solve(qp_i; linear_solver=cpu_solver, options...) for qp_i in qps]
         stats_cpu = [r[2] for r in cpu_runs]
 
         status = [s.status for s in stats_cpu]
@@ -318,7 +318,7 @@ end
 #   GPU solving the same instances 1:b as one batch: converged count, mean iter,
 #       init time, solve time.
 # Both sides solve the same perturbed instances; all times are wall clock.
-function benchmark_dcopf(cases, batches; tau=0.1)
+function benchmark_dcopf(cases, batches; cpu_solver, tau=0.1)
     shift = 3
     m = shift + 10*length(batches)
     results = zeros(length(cases), m)
@@ -347,7 +347,7 @@ function benchmark_dcopf(cases, batches; tau=0.1)
 
         qps = build_dcopf_qps(qp, index, batches[end]; tau=tau)
         # CPU: every instance of the largest batch, sequentially
-        cpu = timed_cpu_sequential(qps; linear_solver=Ma57Solver, options...)
+        cpu = timed_cpu_sequential(qps; linear_solver=cpu_solver, options...)
         for (l, batch) in enumerate(batches)
             cpu_cols = shift+10*(l-1) .+ (1:6)
             gpu_cols = shift+10*(l-1) .+ (7:10)
@@ -368,8 +368,8 @@ function benchmark_dcopf(cases, batches; tau=0.1)
     return [cases results]
 end
 
-function decompose_timings()
-    warmup(WARMUP_INSTANCE)
+function decompose_timings(; cpu_solver)
+    warmup(WARMUP_INSTANCE; cpu_solver=cpu_solver)
 
     for (case, batches) in [
         ("case89pegase.m", [2^i for i in 0:12]),
@@ -382,6 +382,7 @@ function decompose_timings()
         results = analyze_instance(
             case,
             batches;
+            cpu_solver=cpu_solver,
             tol=1e-6,
             regularization=MadIPM.FixedRegularization(1e-8, -1e-8),
             max_iter=300,
@@ -398,6 +399,7 @@ function parse_args(args::Vector{String})
     device = nothing
     tol = 1e-6
     job = :comp
+    cpu_solver = "auto"
     for arg in args
         if startswith(arg, "--tol=")
             tol = parse(Float64, split(arg, "=")[2])
@@ -407,6 +409,8 @@ function parse_args(args::Vector{String})
             device = parse(Int, split(arg, "=")[2])
         elseif startswith(arg, "--job=")
             job = Symbol(split(arg, "=")[2])
+        elseif startswith(arg, "--cpu-solver=")
+            cpu_solver = String(split(arg, "=")[2])
         end
     end
     return (
@@ -414,6 +418,7 @@ function parse_args(args::Vector{String})
         tol=tol,
         job=job,
         device=device,
+        cpu_solver=cpu_solver,
     )
 end
 
@@ -424,20 +429,22 @@ function @main(args::Vector{String})
     if !isnothing(pargs.device)
         CUDA.device!(pargs.device)
     end
+    cpu_solver = cpu_linear_solver(pargs.cpu_solver; preferred=Ma57Solver)
+    @info "CPU linear solver: $(cpu_solver)"
 
     @info "Warmup"
-    warmup(WARMUP_INSTANCE)
+    warmup(WARMUP_INSTANCE; cpu_solver=cpu_solver)
 
     cases = select_dcopf_instances()
 
     if pargs.job == :benchmark
         batches = [2^i for i in 0:pargs.max_batch]
         @info "#instances: $(length(cases))"
-        results = benchmark_dcopf(cases, batches)
+        results = benchmark_dcopf(cases, batches; cpu_solver=cpu_solver)
         mkpath("results")
         writedlm(joinpath("results", "3-benchmark-dcopf.csv"), results)
     elseif pargs.job == :decompose
-        decompose_timings()
+        decompose_timings(; cpu_solver=cpu_solver)
     elseif pargs.job == :comp
         nbatch = 64
         for tau ∈ [0.0, 0.1, 0.2, 0.3, 0.4]
@@ -446,6 +453,7 @@ function @main(args::Vector{String})
                 cases,
                 nbatch,
                 tau;
+                cpu_solver=cpu_solver,
                 tol=pargs.tol,
                 regularization=MadIPM.FixedRegularization(1e-8, -1e-8),
                 max_iter=300,
@@ -457,6 +465,4 @@ function @main(args::Vector{String})
         end
     end
 end
-
-main()
 
