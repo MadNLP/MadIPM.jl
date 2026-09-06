@@ -12,8 +12,10 @@
 # early by a profiler stop from inside CUDA.jl's kernel launch path); the
 # NVTX ranges "warmup" and "batch <case> bs=<b>" (with "init" and "solve"
 # inside) mark the two solves in the timeline.
-# Output: benchmark/profiles/<case>-bs<batch>[-sync].nsys-rep plus a short
-# summary of the NVTX ranges and CUDA kernels on stdout.
+# Output: benchmark/profiles/<case>-bs<batch>[-sync].nsys-rep (open in the
+# Nsight Systems GUI), the same report exported to .sqlite (copy it to a
+# laptop and draw a window of it with nsys_figure.py, no nsys needed there),
+# plus a short summary of the NVTX ranges and CUDA kernels on stdout.
 set -euo pipefail
 BENCH_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$BENCH_DIR/.." && pwd)"
@@ -55,5 +57,7 @@ nsys profile \
     julia --project="$BENCH_DIR" "$BENCH_DIR/nsys_batch.jl" "$CASE" "$BS" $SYNC
 
 echo "report: $OUT.nsys-rep"
-nsys stats --report nvtx_sum,cuda_gpu_kern_sum --format table --force-export=true "$OUT.nsys-rep" 2>/dev/null \
+nsys export --type sqlite --force-overwrite=true -o "$OUT.sqlite" "$OUT.nsys-rep" > /dev/null 2>&1
+echo "sqlite: $OUT.sqlite"
+nsys stats --report nvtx_sum,cuda_gpu_kern_sum --format table "$OUT.nsys-rep" 2>/dev/null \
     | grep -v "^$" | head -70
