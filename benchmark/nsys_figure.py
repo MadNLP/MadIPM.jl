@@ -16,7 +16,7 @@ waits for the asynchronous GPU. The row holds one level: by default the solver
 phases in PHASES, whichever nesting level they sit at (`--ranges` picks other
 names; `--depth N` shows one nesting level instead, e.g. `--depth 5` in a
 MadIPM profile is the level with factorize_system!/prediction_step!/...).
-Below it, one thin row each for memsets and host-to-device, device-to-host and
+Below it, one thin row each for host-to-device, device-to-host and
 device-to-device copies, drawn as ticks since they last microseconds. Bars are
 labelled inside when they fit and with a leader above the row otherwise; the
 legend gives each phase's GPU time and share of the window. Needs matplotlib.
@@ -44,14 +44,16 @@ PHASE_COLORS = {
     "evaluate_model!": "#41ab5d",
 }
 IDLE_COLOR = "#e6e6e6"
-MEMORY_ROWS = [("memset", "Memset", "#6baed6"), (1, "HtoD memcpy", "#d62728"),
-               (2, "DtoH memcpy", "#7b3294"), (8, "DtoD memcpy", "0.55")]   # copyKind ids of the export
+MEMORY_ROWS = [(1, "HtoD memcpy", "#d62728"), (2, "DtoH memcpy", "#7b3294"),
+               (8, "DtoD memcpy", "0.55")]   # copyKind ids of the export
 
 
 # ---------------------------------------------------------------- database ----
 
 def sqlite_path(report):
     if report.endswith(".sqlite"):
+        if not os.path.exists(report):
+            sys.exit(f"{report}: no such file (the .sqlite exports of the reports live next to the .nsys-rep files)")
         return report
     stem, _ = os.path.splitext(report)
     db = stem + ".sqlite"
@@ -84,17 +86,15 @@ def load(db, t0, t1, lag):
         ranges.append(dict(start=start, end=end, tid=tid, name=text if text else strings.get(text_id, "?")))
 
     ops = {}                                  # correlationId -> GPU (start, end)
-    memory = []                               # memory operations in the window, GPU times
-    for table, kind_col in (("CUPTI_ACTIVITY_KIND_KERNEL", None), ("CUPTI_ACTIVITY_KIND_MEMCPY", "copyKind"),
-                            ("CUPTI_ACTIVITY_KIND_MEMSET", None)):
+    memory = []                               # memory copies in the window, GPU times
+    for table in ("CUPTI_ACTIVITY_KIND_KERNEL", "CUPTI_ACTIVITY_KIND_MEMCPY", "CUPTI_ACTIVITY_KIND_MEMSET"):
         if not table_exists(con, table):
             continue
         for cid, start, end in con.execute(f"SELECT correlationId, start, end FROM {table} "
                                            "WHERE start >= ? AND start < ?", (t0 - lag, t1 + lag)):
             ops[cid] = (start, end)
-        if table != "CUPTI_ACTIVITY_KIND_KERNEL":
-            kind = kind_col or "'memset'"
-            for start, end, k, nbytes in con.execute(f"SELECT start, end, {kind}, bytes FROM {table} "
+        if table == "CUPTI_ACTIVITY_KIND_MEMCPY":
+            for start, end, k, nbytes in con.execute(f"SELECT start, end, copyKind, bytes FROM {table} "
                                                      "WHERE end > ? AND start < ?", (t0, t1)):
                 memory.append(dict(start=start, end=end, kind=k, bytes=nbytes))
 
@@ -194,12 +194,12 @@ def draw(row, memory, t0, t1, title, out, width, show_memory=True):
             placed.append((xc, free[0]))
     top_pad = 0.5 + 0.38 * max(leaders.values()) if leaders else 0.15
 
-    # rows, top to bottom: the projected ranges, then one thin row per memory operation kind
+    # rows, top to bottom: the projected ranges, then one thin row per memory copy kind
     by_kind = defaultdict(list)
     for m in memory:
         by_kind[m["kind"]].append(m)
     mem_rows = [(k, lbl, col) for k, lbl, col in MEMORY_ROWS] + \
-        [(k, f"copy kind {k}", "0.7") for k in sorted(by_kind, key=str) if k not in {k for k, _, _ in MEMORY_ROWS}]
+        [(k, f"copy kind {k}", "0.7") for k in sorted(by_kind) if k not in {k for k, _, _ in MEMORY_ROWS}]
     lanes = [("gpu", "GPU", 1.0)] + ([(k, lbl, 0.42) for k, lbl, _ in mem_rows] if show_memory else [])
     gap, y_of, cur = 0.22, {}, 0.0
     for key, _, h in reversed(lanes):
@@ -237,7 +237,7 @@ def draw(row, memory, t0, t1, title, out, width, show_memory=True):
             ax.text((x0 + x1) / 2, y + h / 2, n, ha="center", va="center", fontsize=7, clip_on=True)
     idle = span - union_length([gclip(r) for r in row])
 
-    # memory operations as ticks
+    # memory copies as ticks
     labels = {"gpu": "GPU"}
     if show_memory:
         for k, lbl, col in mem_rows:
@@ -283,7 +283,7 @@ def main():
     p.add_argument("--lag", type=float, default=5.0, help="seconds before the window to look for host ranges whose GPU work falls in it")
     p.add_argument("--title", default=None)
     p.add_argument("--width", type=float, default=9.0, help="figure width in inches")
-    p.add_argument("--no-memory", action="store_true", help="omit the memory operation rows")
+    p.add_argument("--no-memory", action="store_true", help="omit the memory copy rows")
     a = p.parse_args()
 
     db = sqlite_path(a.report)
