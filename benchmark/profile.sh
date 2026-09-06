@@ -24,13 +24,16 @@ if [ ! -f "$FLAG" ]; then
         -exec sed -i 's/^function /MadIPM.@sync_annotate function /' {} +
     find "$REPO_DIR/ext/MadIPMCUDAExt" -name '*.jl' \
         -exec sed -i 's/^function /MadIPM.@sync_annotate function /' {} +
-    sed -i '/^module MadIPM$/a\
+    # header insertions are guarded so a run that failed before the flag was
+    # written cannot double them
+    grep -q '_sync_annotate' "$REPO_DIR/src/MadIPM.jl" || sed -i '/^module MadIPM$/a\
 using NVTX\
 include("_sync_annotate.jl")' "$REPO_DIR/src/MadIPM.jl"
-    sed -i '/^import MadNLP$/a\
+    grep -q '^using NVTX' "$REPO_DIR/ext/MadIPMCUDAExt/MadIPMCUDAExt.jl" || sed -i '/^import MadNLP$/a\
 using NVTX' "$REPO_DIR/ext/MadIPMCUDAExt/MadIPMCUDAExt.jl"
     julia --project="$REPO_DIR" -e 'using Pkg; Pkg.add("NVTX")'
-    julia --project="$BENCH_DIR" -e 'using Pkg; Pkg.add("NVTX"); Pkg.precompile()'
+    # resolve: the benchmark manifest must pick up NVTX as a new dependency of MadIPM
+    julia --project="$BENCH_DIR" -e 'using Pkg; Pkg.add("NVTX"); Pkg.resolve(); Pkg.precompile()'
     touch "$FLAG"
     echo "annotated"
 fi
