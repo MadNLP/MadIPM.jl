@@ -40,8 +40,9 @@ end
 #   GPU solving the same instances 1:b as one batch: converged count, mean iter,
 #       init time, solve time.
 # Both sides solve the same presolved, scaled, standard-form instances; all
-# times are wall clock.
-function benchmark_scalability(cases, batches; cpu_solver, options...)
+# times are wall clock. The CPU solves at most `cpu_max_batch` instances;
+# CPU blocks of larger batches are -1 (not measured, never extrapolated).
+function benchmark_scalability(cases, batches; cpu_solver, cpu_max_batch=batches[end], options...)
     shift = 3
     m = shift + 10*length(batches)
     results = zeros(length(cases), m)
@@ -55,10 +56,11 @@ function benchmark_scalability(cases, batches; cpu_solver, options...)
         results[k, 3] = NLPModels.get_nnzj(qp)
         # Test pure scalability, do not change cost vector here.
         qps = build_qps(qp, batches[end]; shift_c=false)
-        # CPU: every instance of the largest batch, sequentially
-        cpu = timed_cpu_sequential(qps; linear_solver=cpu_solver, options...)
+        # CPU: the first instances of the largest batch, sequentially
+        n_cpu = min(length(qps), cpu_max_batch)
+        cpu = timed_cpu_sequential(qps[1:n_cpu]; linear_solver=cpu_solver, options...)
         for (l, batch) in enumerate(batches)
-            results[k, shift+10*(l-1) .+ (1:6)] .= cpu_summary(cpu..., batch)
+            results[k, shift+10*(l-1) .+ (1:6)] .= batch <= n_cpu ? cpu_summary(cpu..., batch) : -1
             # GPU: the same instances as one batch
             refresh_memory()
             gpu_bnlp = to_gpu(ObjRHSBatchQuadraticModel(qps[1:batch]))
@@ -76,6 +78,7 @@ function parse_args(args::Vector{String})
     device = nothing
     tol = 1e-6
     cpu_solver = "auto"
+    cpu_max_batch = nothing   # log2 of the largest batch the CPU solves sequentially
     for arg in args
         if startswith(arg, "--tol=")
             tol = parse(Float64, split(arg, "=")[2])
@@ -85,6 +88,8 @@ function parse_args(args::Vector{String})
             device = parse(Int, split(arg, "=")[2])
         elseif startswith(arg, "--cpu-solver=")
             cpu_solver = String(split(arg, "=")[2])
+        elseif startswith(arg, "--cpu-max-batch=")
+            cpu_max_batch = parse(Int, split(arg, "=")[2])
         end
     end
     return (
@@ -92,6 +97,7 @@ function parse_args(args::Vector{String})
         tol=tol,
         device=device,
         cpu_solver=cpu_solver,
+        cpu_max_batch=something(cpu_max_batch, max_batch),
     )
 end
 
@@ -115,6 +121,7 @@ function @main(args::Vector{String})
         cases,
         batches;
         cpu_solver=cpu_solver,
+        cpu_max_batch=2^pargs.cpu_max_batch,
         print_level=MadNLP.ERROR,
         tol=pargs.tol,
         max_iter=500,

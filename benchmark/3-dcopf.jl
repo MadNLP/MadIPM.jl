@@ -317,8 +317,10 @@ end
 #       (b CPUs with perfect scaling);
 #   GPU solving the same instances 1:b as one batch: converged count, mean iter,
 #       init time, solve time.
-# Both sides solve the same perturbed instances; all times are wall clock.
-function benchmark_dcopf(cases, batches; cpu_solver, tau=0.1)
+# Both sides solve the same perturbed instances; all times are wall clock. The
+# CPU solves at most `cpu_max_batch` instances; CPU blocks of larger batches
+# are -1 (not measured, never extrapolated).
+function benchmark_dcopf(cases, batches; cpu_solver, cpu_max_batch=batches[end], tau=0.1)
     shift = 3
     m = shift + 10*length(batches)
     results = zeros(length(cases), m)
@@ -346,12 +348,13 @@ function benchmark_dcopf(cases, batches; cpu_solver, tau=0.1)
         results[k, 3] = NLPModels.get_nnzj(qp)
 
         qps = build_dcopf_qps(qp, index, batches[end]; tau=tau)
-        # CPU: every instance of the largest batch, sequentially
-        cpu = timed_cpu_sequential(qps; linear_solver=cpu_solver, options...)
+        # CPU: the first instances of the largest batch, sequentially
+        n_cpu = min(length(qps), cpu_max_batch)
+        cpu = timed_cpu_sequential(qps[1:n_cpu]; linear_solver=cpu_solver, options...)
         for (l, batch) in enumerate(batches)
             cpu_cols = shift+10*(l-1) .+ (1:6)
             gpu_cols = shift+10*(l-1) .+ (7:10)
-            results[k, cpu_cols] .= cpu_summary(cpu..., batch)
+            results[k, cpu_cols] .= batch <= n_cpu ? cpu_summary(cpu..., batch) : -1
             # GPU: the same instances as one batch
             try
                 refresh_memory()
@@ -400,6 +403,7 @@ function parse_args(args::Vector{String})
     tol = 1e-6
     job = :comp
     cpu_solver = "auto"
+    cpu_max_batch = nothing   # log2 of the largest batch the CPU solves sequentially
     for arg in args
         if startswith(arg, "--tol=")
             tol = parse(Float64, split(arg, "=")[2])
@@ -411,6 +415,8 @@ function parse_args(args::Vector{String})
             job = Symbol(split(arg, "=")[2])
         elseif startswith(arg, "--cpu-solver=")
             cpu_solver = String(split(arg, "=")[2])
+        elseif startswith(arg, "--cpu-max-batch=")
+            cpu_max_batch = parse(Int, split(arg, "=")[2])
         end
     end
     return (
@@ -419,6 +425,7 @@ function parse_args(args::Vector{String})
         job=job,
         device=device,
         cpu_solver=cpu_solver,
+        cpu_max_batch=something(cpu_max_batch, max_batch),
     )
 end
 
@@ -440,7 +447,7 @@ function @main(args::Vector{String})
     if pargs.job == :benchmark
         batches = [2^i for i in 0:pargs.max_batch]
         @info "#instances: $(length(cases))"
-        results = benchmark_dcopf(cases, batches; cpu_solver=cpu_solver)
+        results = benchmark_dcopf(cases, batches; cpu_solver=cpu_solver, cpu_max_batch=2^pargs.cpu_max_batch)
         mkpath("results")
         writedlm(joinpath("results", "3-benchmark-dcopf.csv"), results)
     elseif pargs.job == :decompose

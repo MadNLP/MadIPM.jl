@@ -86,8 +86,10 @@ end
 #   GPU solving the same instances 1:b as one batch: converged count, mean iter,
 #       init time, solve time.
 # Both sides solve the same presolved, scaled, standard-form instances, cost
-# perturbations included; all times are wall clock. Failures are marked -1.
-function benchmark_lps(cases, batches, load_instance; cpu_solver, options...)
+# perturbations included; all times are wall clock. The CPU solves at most
+# `cpu_max_batch` instances; CPU blocks of larger batches are -1 (not
+# measured, never extrapolated). Failures are marked -1.
+function benchmark_lps(cases, batches, load_instance; cpu_solver, cpu_max_batch=batches[end], options...)
     shift = 3
     m = shift + 10*length(batches)
     results = zeros(length(cases), m)
@@ -107,9 +109,10 @@ function benchmark_lps(cases, batches, load_instance; cpu_solver, options...)
             results[k, shift+1:end] .= -1
             continue
         end
-        # CPU: every instance of the largest batch, sequentially
+        # CPU: the first instances of the largest batch, sequentially
+        n_cpu = min(length(qps), cpu_max_batch)
         cpu = try
-            timed_cpu_sequential(qps; linear_solver=cpu_solver, options...)
+            timed_cpu_sequential(qps[1:n_cpu]; linear_solver=cpu_solver, options...)
         catch ex
             println("$(case) fails on CPU with message $(ex)")
             nothing
@@ -117,7 +120,7 @@ function benchmark_lps(cases, batches, load_instance; cpu_solver, options...)
         for (l, batch) in enumerate(batches)
             cpu_cols = shift+10*(l-1) .+ (1:6)
             gpu_cols = shift+10*(l-1) .+ (7:10)
-            if cpu === nothing
+            if cpu === nothing || batch > n_cpu
                 results[k, cpu_cols] .= -1
             else
                 results[k, cpu_cols] .= cpu_summary(cpu..., batch)
@@ -144,6 +147,7 @@ function parse_args(args::Vector{String})
     tol = 1e-6
     benchmark = :netlib
     cpu_solver = "auto"
+    cpu_max_batch = nothing   # log2 of the largest batch the CPU solves sequentially
     for arg in args
         if startswith(arg, "--tol=")
             tol = parse(Float64, split(arg, "=")[2])
@@ -155,6 +159,8 @@ function parse_args(args::Vector{String})
             benchmark = Symbol(split(arg, "=")[2])
         elseif startswith(arg, "--cpu-solver=")
             cpu_solver = String(split(arg, "=")[2])
+        elseif startswith(arg, "--cpu-max-batch=")
+            cpu_max_batch = parse(Int, split(arg, "=")[2])
         end
     end
     return (
@@ -163,6 +169,7 @@ function parse_args(args::Vector{String})
         device=device,
         benchmark=benchmark,
         cpu_solver=cpu_solver,
+        cpu_max_batch=something(cpu_max_batch, max_batch),
     )
 end
 
@@ -188,6 +195,7 @@ function @main(args::Vector{String})
             batches,
             load_netlib_instance;
             cpu_solver=cpu_solver,
+            cpu_max_batch=2^pargs.cpu_max_batch,
             print_level=MadNLP.ERROR,
             tol=pargs.tol,
             max_iter=300,
@@ -202,6 +210,7 @@ function @main(args::Vector{String})
             batches,
             load_miplib_instance;
             cpu_solver=cpu_solver,
+            cpu_max_batch=2^pargs.cpu_max_batch,
             print_level=MadNLP.ERROR,
             tol=pargs.tol,
             max_iter=300,
