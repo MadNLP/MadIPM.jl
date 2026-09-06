@@ -24,6 +24,7 @@ legend gives each phase's GPU time and share of the window. Needs matplotlib.
 import argparse
 import bisect
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -313,7 +314,7 @@ def main():
                    help="comma-separated function names for the row (default: the solver phases)")
     p.add_argument("--depth", type=int, default=None, help="show one NVTX nesting level instead of --ranges")
     p.add_argument("--lag", type=float, default=5.0, help="seconds before the window to look for host ranges whose GPU work falls in it")
-    p.add_argument("--title", default=None, help="title above the axes (default none: the caption says it)")
+    p.add_argument("--title", default=None, help='title above the axes (default "<case> × <batch>" from the report name; "" for none)')
     p.add_argument("--width", type=float, default=3.4, help="figure width in inches (default: one column of a two-column paper)")
     p.add_argument("--no-memory", action="store_true", help="omit the memory copy rows")
     a = p.parse_args()
@@ -328,7 +329,9 @@ def main():
         print(f"note: {nested} nested ranges hidden behind their outer range")
     stem = os.path.splitext(os.path.basename(a.report))[0]
     out = a.out or f"{stem}-{a.start:.3f}-{a.end:.3f}.pdf"
-    draw(row, memory, t0, t1, a.title, out, a.width, show_memory=not a.no_memory)
+    m = re.match(r"(.+?)-bs(\d+)", stem)
+    title = a.title if a.title is not None else (f"{m.group(1)} × {m.group(2)}" if m else stem)
+    draw(row, memory, t0, t1, title, out, a.width, show_memory=not a.no_memory)
 
 
 if __name__ == "__main__":
