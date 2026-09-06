@@ -39,7 +39,7 @@ NVTX.enable_gc_hooks()
 GC.gc(true); GC.gc(true)
 
 println("profiled run")
-local stats
+stats = nothing
 CUDA.@profile NVTX.@range "batch $case bs=$batch" begin
     solver = NVTX.@range "init" MadIPM.UniformBatchMPCSolver(
         gpu_bnlp;
@@ -47,7 +47,7 @@ CUDA.@profile NVTX.@range "batch $case bs=$batch" begin
         cudss_algorithm = MadNLP.LDL,
         options...
     )
-    stats = NVTX.@range "solve" MadIPM.solve!(solver)
+    global stats = NVTX.@range "solve" MadIPM.solve!(solver)
     CUDA.synchronize()
 end
 println("converged ", count(==(MadNLP.SOLVE_SUCCEEDED), stats.status), "/", batch,
