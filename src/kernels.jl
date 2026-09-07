@@ -18,7 +18,10 @@ function set_initial_dual_rhs!(solver::MadNLP.AbstractMadNLPSolver)
     return
 end
 
-function set_predictive_rhs!(solver::MadNLP.AbstractMadNLPSolver, kkt::MadNLP.AbstractKKTSystem)
+function set_predictive_rhs!(
+    solver::MadNLP.AbstractMadNLPSolver,
+    kkt::MadNLP.AbstractKKTSystem,
+)
     # RHS
     px = MadNLP.primal(solver.p)
     py = MadNLP.dual(solver.p)
@@ -33,14 +36,22 @@ function set_predictive_rhs!(solver::MadNLP.AbstractMadNLPSolver, kkt::MadNLP.Ab
 
     fill!(MadNLP.full(solver.p), 0.0)
 
-    px  .= .-f .+ zl .- zu .- solver.jacl
-    py  .= .-c
+    px .= .-f .+ zl .- zu .- solver.jacl
+    py .= .-c
     pzl .= (solver.xl_r .- solver.x_lr) .* solver.zl_r
     pzu .= (solver.xu_r .- solver.x_ur) .* solver.zu_r
     return
 end
 
-function set_correction_rhs!(solver::MadNLP.AbstractMadNLPSolver, kkt::MadNLP.AbstractKKTSystem, mu::Float64, correction_lb::AbstractVector{Float64}, correction_ub::AbstractVector{Float64}, ind_lb, ind_ub)
+function set_correction_rhs!(
+    solver::MadNLP.AbstractMadNLPSolver,
+    kkt::MadNLP.AbstractKKTSystem,
+    mu::Float64,
+    correction_lb::AbstractVector{Float64},
+    correction_ub::AbstractVector{Float64},
+    ind_lb,
+    ind_ub,
+)
     px = MadNLP.primal(solver.p)
     py = MadNLP.dual(solver.p)
     pzl = MadNLP.dual_lb(solver.p)
@@ -57,11 +68,7 @@ function set_correction_rhs!(solver::MadNLP.AbstractMadNLPSolver, kkt::MadNLP.Ab
     return
 end
 
-function get_correction!(
-    solver::MadNLP.AbstractMadNLPSolver,
-    correction_lb,
-    correction_ub,
-)
+function get_correction!(solver::MadNLP.AbstractMadNLPSolver, correction_lb, correction_ub)
     dlb = MadNLP.dual_lb(solver.d)
     dub = MadNLP.dual_ub(solver.d)
 
@@ -73,8 +80,13 @@ end
 # Gondzio's multi-correction scheme
 function set_extra_correction!(
     solver::MadNLP.AbstractMadNLPSolver,
-    correction_lb, correction_ub,
-    alpha_p, alpha_d, βmin, βmax, μ,
+    correction_lb,
+    correction_ub,
+    alpha_p,
+    alpha_d,
+    βmin,
+    βmax,
+    μ,
 )
     dlb = MadNLP.dual_lb(solver.d)
     dub = MadNLP.dual_ub(solver.d)
@@ -96,7 +108,12 @@ function set_extra_correction!(
             corr - δ
         end,
         correction_lb,
-        solver.x_lr, solver.dx_lr, solver.xl_r, solver.zl_r, dlb, correction_lb
+        solver.x_lr,
+        solver.dx_lr,
+        solver.xl_r,
+        solver.zl_r,
+        dlb,
+        correction_lb,
     )
 
     # Upper-bound correction
@@ -115,14 +132,22 @@ function set_extra_correction!(
             corr + δ
         end,
         correction_ub,
-        solver.xu_r, solver.dx_ur, solver.x_ur, solver.zu_r, dub, correction_ub
+        solver.xu_r,
+        solver.dx_ur,
+        solver.x_ur,
+        solver.zu_r,
+        dub,
+        correction_ub,
     )
 
     return
 end
 
 # Default implementation
-function set_aug_diagonal_reg!(kkt::MadNLP.AbstractKKTSystem{T}, solver::MadNLP.AbstractMadNLPSolver{T}) where T
+function set_aug_diagonal_reg!(
+    kkt::MadNLP.AbstractKKTSystem{T},
+    solver::MadNLP.AbstractMadNLPSolver{T},
+) where {T}
     fill!(kkt.reg, solver.del_w)
     fill!(kkt.du_diag, solver.del_c)
     kkt.l_diag .= solver.xl_r .- solver.x_lr   # (Xˡ - X)
@@ -137,7 +162,10 @@ function set_aug_diagonal_reg!(kkt::MadNLP.AbstractKKTSystem{T}, solver::MadNLP.
 end
 
 # Special function for ScaledSparseKKTSystem to ensure coefficients are positive
-function set_aug_diagonal_reg!(kkt::MadNLP.ScaledSparseKKTSystem{T}, solver::MadNLP.AbstractMadNLPSolver{T}) where T
+function set_aug_diagonal_reg!(
+    kkt::MadNLP.ScaledSparseKKTSystem{T},
+    solver::MadNLP.AbstractMadNLPSolver{T},
+) where {T}
     fill!(kkt.reg, solver.del_w)
     fill!(kkt.du_diag, solver.del_c)
     kkt.l_diag .= solver.x_lr .- solver.xl_r   # (X - Xˡ)
@@ -149,7 +177,10 @@ function set_aug_diagonal_reg!(kkt::MadNLP.ScaledSparseKKTSystem{T}, solver::Mad
     return
 end
 
-function set_aug_diagonal_reg!(kkt::MadNLP.SparseUnreducedKKTSystem{T}, solver::MadNLP.AbstractMadNLPSolver{T}) where T
+function set_aug_diagonal_reg!(
+    kkt::MadNLP.SparseUnreducedKKTSystem{T},
+    solver::MadNLP.AbstractMadNLPSolver{T},
+) where {T}
     x = full(solver.x)
     xl = full(solver.xl)
     xu = full(solver.xu)
@@ -182,20 +213,28 @@ function get_complementarity_measure(solver::MadNLP.AbstractMadNLPSolver)
         inf_compl_l = mapreduce(
             (x_lr, xl_r, zl_r) -> (x_lr - xl_r) * zl_r,
             +,
-            solver.x_lr, solver.xl_r, solver.zl_r;
-            init = zero(eltype(solver.x_lr))
+            solver.x_lr,
+            solver.xl_r,
+            solver.zl_r;
+            init = zero(eltype(solver.x_lr)),
         )
         inf_compl_u = mapreduce(
             (x_ur, xu_r, zu_r) -> (xu_r - x_ur) * zu_r,
             +,
-            solver.x_ur, solver.xu_r, solver.zu_r;
-            init = zero(eltype(solver.x_ur))
+            solver.x_ur,
+            solver.xu_r,
+            solver.zu_r;
+            init = zero(eltype(solver.x_ur)),
         )
         return (inf_compl_l + inf_compl_u) / (m1 + m2)
     end
 end
 
-function get_affine_complementarity_measure(solver::MadNLP.AbstractMadNLPSolver, alpha_p, alpha_d)
+function get_affine_complementarity_measure(
+    solver::MadNLP.AbstractMadNLPSolver,
+    alpha_p,
+    alpha_d,
+)
     m1, m2 = length(solver.x_lr), length(solver.x_ur)
     if m1 + m2 == 0
         return 0.0
@@ -209,10 +248,15 @@ function get_affine_complementarity_measure(solver::MadNLP.AbstractMadNLPSolver,
         # z_ = solver.zl_r[i] + alpha_d * dzlb[i]
         # inf_compl_l += (x_ - x_lb) * z_
         inf_compl_l = mapreduce(
-            (x_lr, xl_r, dx_lr, zl_r, dz) -> ((x_lr + alpha_p * dx_lr) - xl_r) * (zl_r + alpha_d * dz),
+            (x_lr, xl_r, dx_lr, zl_r, dz) ->
+                ((x_lr + alpha_p * dx_lr) - xl_r) * (zl_r + alpha_d * dz),
             +,
-            solver.x_lr, solver.xl_r, solver.dx_lr, solver.zl_r, dzlb;
-            init = zero(eltype(solver.x_lr))
+            solver.x_lr,
+            solver.xl_r,
+            solver.dx_lr,
+            solver.zl_r,
+            dzlb;
+            init = zero(eltype(solver.x_lr)),
         )
         # for i = 1, ..., m2
         # x_ub = solver.xu_r[i]
@@ -220,10 +264,15 @@ function get_affine_complementarity_measure(solver::MadNLP.AbstractMadNLPSolver,
         # z_ = solver.zu_r[i] + alpha_d * dzub[i]
         # inf_compl += (x_ub - x_) * z_
         inf_compl_u = mapreduce(
-            (xu_r, x_ur, dx_ur, zu_r, dzub) -> (xu_r - (x_ur + alpha_p * dx_ur)) * (zu_r + alpha_d * dzub),
+            (xu_r, x_ur, dx_ur, zu_r, dzub) ->
+                (xu_r - (x_ur + alpha_p * dx_ur)) * (zu_r + alpha_d * dzub),
             +,
-            solver.xu_r, solver.x_ur, solver.dx_ur, solver.zu_r, dzub;
-            init = zero(eltype(solver.x_ur))
+            solver.xu_r,
+            solver.x_ur,
+            solver.dx_ur,
+            solver.zu_r,
+            dzub;
+            init = zero(eltype(solver.x_ur)),
         )
         return (inf_compl_l + inf_compl_u) / (m1 + m2)
     end
@@ -247,23 +296,29 @@ end
 
 function get_alpha_max_primal(xl, xlb, xu, xub, dxl, dxu, tau)
     alpha_xl, iblock_l = mapreduce(
-      (dxl, xlb, xl, i) -> begin
-        val = (dxl < 0) ? (-xl + xlb) * tau / dxl : Inf
-        (val, i)
-      end,
-      (elem1, elem2) -> elem1[1] < elem2[1] ? elem1 : elem2,
-      dxl, xlb, xl, eachindex(xl);
-      init = (1.0, 0)
+        (dxl, xlb, xl, i) -> begin
+            val = (dxl < 0) ? (-xl + xlb) * tau / dxl : Inf
+            (val, i)
+        end,
+        (elem1, elem2) -> elem1[1] < elem2[1] ? elem1 : elem2,
+        dxl,
+        xlb,
+        xl,
+        eachindex(xl);
+        init = (1.0, 0),
     )
 
     alpha_xu, iblock_u = mapreduce(
-      (dxu, xub, xu, i) -> begin
-        val = (dxu > 0) ? (-xu + xub) * tau / dxu : Inf
-        (val, i)
-      end,
-      (elem1, elem2) -> elem1[1] < elem2[1] ? elem1 : elem2,
-      dxu, xub, xu, eachindex(xu);
-      init = (1.0, 0)
+        (dxu, xub, xu, i) -> begin
+            val = (dxu > 0) ? (-xu + xub) * tau / dxu : Inf
+            (val, i)
+        end,
+        (elem1, elem2) -> elem1[1] < elem2[1] ? elem1 : elem2,
+        dxu,
+        xub,
+        xu,
+        eachindex(xu);
+        init = (1.0, 0),
     )
 
     return alpha_xl, alpha_xu, iblock_l, iblock_u
@@ -271,23 +326,27 @@ end
 
 function get_alpha_max_dual(zl_r, zu_r, dzl, dzu, tau)
     alpha_zl, iblock_l = mapreduce(
-      (dzl, zl_r, i) -> begin
-        val = (dzl < 0) ? (-zl_r) * tau / dzl : Inf
-        (val, i)
-      end,
-      (elem1, elem2) -> elem1[1] < elem2[1] ? elem1 : elem2,
-      dzl, zl_r, eachindex(dzl);
-      init = (1.0, 0)
+        (dzl, zl_r, i) -> begin
+            val = (dzl < 0) ? (-zl_r) * tau / dzl : Inf
+            (val, i)
+        end,
+        (elem1, elem2) -> elem1[1] < elem2[1] ? elem1 : elem2,
+        dzl,
+        zl_r,
+        eachindex(dzl);
+        init = (1.0, 0),
     )
 
     alpha_zu, iblock_u = mapreduce(
-      (dzu, zu_r, i) -> begin
-        val = (dzu < 0) && (zu_r + dzu < 0) ? (-zu_r) * tau / dzu : Inf
-        (val, i)
-      end,
-      (elem1, elem2) -> elem1[1] < elem2[1] ? elem1 : elem2,
-      dzu, zu_r, eachindex(dzu);
-      init = (1.0, 0)
+        (dzu, zu_r, i) -> begin
+            val = (dzu < 0) && (zu_r + dzu < 0) ? (-zu_r) * tau / dzu : Inf
+            (val, i)
+        end,
+        (elem1, elem2) -> elem1[1] < elem2[1] ? elem1 : elem2,
+        dzu,
+        zu_r,
+        eachindex(dzu);
+        init = (1.0, 0),
     )
 
     return alpha_zl, alpha_zu, iblock_l, iblock_u
@@ -295,9 +354,12 @@ end
 
 function get_fraction_to_boundary_step(solver, tau)
     alpha_xl, alpha_xu, _ = get_alpha_max_primal(
-        solver.x_lr, solver.xl_r,
-        solver.x_ur, solver.xu_r,
-        solver.dx_lr, solver.dx_ur,
+        solver.x_lr,
+        solver.xl_r,
+        solver.x_ur,
+        solver.xu_r,
+        solver.dx_lr,
+        solver.dx_ur,
         tau,
     )
     alpha_zl, alpha_zu, _ = get_alpha_max_dual(
@@ -335,13 +397,16 @@ function update_step!(rule::MehrotraAdaptiveStep, solver)
     d_zu = MadNLP.dual_ub(solver.d)
 
     alpha_xl, alpha_xu, i_xl, i_xu = get_alpha_max_primal(
-        solver.x_lr, solver.xl_r,
-        solver.x_ur, solver.xu_r,
-        solver.dx_lr, solver.dx_ur, tau,
+        solver.x_lr,
+        solver.xl_r,
+        solver.x_ur,
+        solver.xu_r,
+        solver.dx_lr,
+        solver.dx_ur,
+        tau,
     )
-    alpha_zl, alpha_zu, i_zl, i_zu = get_alpha_max_dual(
-        solver.zl_r, solver.zu_r, d_zl, d_zu, tau,
-    )
+    alpha_zl, alpha_zu, i_zl, i_zu =
+        get_alpha_max_dual(solver.zl_r, solver.zu_r, d_zl, d_zu, tau)
 
     max_alpha_p = min(alpha_xl, alpha_xu)
     max_alpha_d = min(alpha_zl, alpha_zu)
@@ -364,10 +429,14 @@ function update_step!(rule::MehrotraAdaptiveStep, solver)
     end
     if max_alpha_d < 1.0
         if alpha_zl <= alpha_zu
-            tmp = mu_full / (solver.x_lr[i_zl] + max_alpha_p * solver.dx_lr[i_zl] - solver.xl_r[i_zl])
+            tmp =
+                mu_full /
+                (solver.x_lr[i_zl] + max_alpha_p * solver.dx_lr[i_zl] - solver.xl_r[i_zl])
             alpha_d = -(solver.zl_r[i_zl] - tmp) / d_zl[i_zl]
         else
-            tmp = mu_full / (solver.xu_r[i_zu] - solver.x_ur[i_zu] - max_alpha_p * solver.dx_ur[i_zu])
+            tmp =
+                mu_full /
+                (solver.xu_r[i_zu] - solver.x_ur[i_zu] - max_alpha_p * solver.dx_ur[i_zu])
             alpha_d = -(solver.zu_r[i_zu] - tmp) / d_zu[i_zu]
         end
     end
@@ -497,7 +566,7 @@ function get_optimality_gap(solver::MPCSolver)
         solver.xu_r,
         solver.x_ur,
         solver.zu_r,
-        0.,
+        0.0,
         1.0,
     )
 end

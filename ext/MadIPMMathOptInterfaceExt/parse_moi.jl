@@ -1,7 +1,5 @@
 # Adapted from NLPModelsJuMP
 
-import QuadraticModels: SparseMatrixCOO
-
 const MOI = MathOptInterface
 
 const VI = MOI.VariableIndex
@@ -165,31 +163,13 @@ function qp_model(moimodel::MOI.ModelLike)
     ncon = length(lb)
 
     A = SparseMatrixCOO(ncon, nvar, Ai, Aj, Ax)
-    Q = SparseMatrixCOO(nvar, nvar, Qi, Qj, Qx)
 
-    data = QuadraticModels.QPData(
-        d,
-        c,
-        Q,
-        A,
-    )
-    return QuadraticModels.QuadraticModel(
-        NLPModels.NLPModelMeta(
-            nvar;
-            ncon=ncon,
-            lvar=lvar,
-            uvar=uvar,
-            lcon=lb,
-            ucon=ub,
-            x0=x0,
-            y0=zeros(ncon),
-            nnzj=length(Ai),
-            lin_nnzj=length(Ai),
-            lin=collect(1:ncon),
-            nnzh=length(Qi),
-            minimize=minimize,
-        ),
-        NLPModels.Counters(),
-        data,
-    ), index_map
+    if isempty(Qi)
+        data = LPData(A, c; lvar = lvar, uvar = uvar, lcon = lb, ucon = ub, c0 = d)
+        return LinearModel(data; x0 = x0, y0 = zeros(ncon), minimize = minimize), index_map
+    else
+        Q = SparseMatrixCOO(nvar, nvar, Qi, Qj, Qx)
+        data = QPData(A, c, Q; lvar = lvar, uvar = uvar, lcon = lb, ucon = ub, c0 = d)
+        return QuadraticModel(data; x0 = x0, y0 = zeros(ncon), minimize = minimize), index_map
+    end
 end

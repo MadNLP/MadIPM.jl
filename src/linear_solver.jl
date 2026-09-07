@@ -5,7 +5,7 @@
 
 function factorize_regularized_system!(solver)
     max_trials = 3
-    for ntrial in 1:max_trials
+    for ntrial = 1:max_trials
         set_aug_diagonal_reg!(solver.kkt, solver)
         MadNLP.factorize_wrapper!(solver)
         if is_factorized(solver.kkt.linear_solver)
@@ -20,7 +20,7 @@ function solve_system!(
     d::MadNLP.UnreducedKKTVector{T},
     solver::MadNLP.AbstractMadNLPSolver{T},
     p::MadNLP.UnreducedKKTVector{T},
-) where T
+) where {T}
     opt = solver.opt
     copyto!(MadNLP.full(d), MadNLP.full(p))
     MadNLP.solve_kkt!(solver.kkt, d)
@@ -37,7 +37,8 @@ function solve_system!(
         solver.logger,
         @sprintf("Residual after linear solve: %6.2e", residual_ratio),
     )
-    if isnan(residual_ratio) || (opt.check_residual && (residual_ratio > opt.tol_linear_solve))
+    if isnan(residual_ratio) ||
+       (opt.check_residual && (residual_ratio > opt.tol_linear_solve))
         throw(MadNLP.SolveException)
     end
     return d

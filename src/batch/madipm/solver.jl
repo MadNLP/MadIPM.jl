@@ -1,4 +1,4 @@
-function init_starting_point!(batch_solver::AbstractBatchMPCSolver{T}) where T
+function init_starting_point!(batch_solver::AbstractBatchMPCSolver{T}) where {T}
     bkkt = batch_solver.kkt
     bs = batch_solver.batch_size
     n = batch_solver.d.n
@@ -51,7 +51,11 @@ function init_starting_point!(batch_solver::AbstractBatchMPCSolver{T}) where T
             end
             val
         end,
-        MadNLP.full(batch_solver.zl), res, l, u, MadNLP.full(batch_solver.zl),
+        MadNLP.full(batch_solver.zl),
+        res,
+        l,
+        u,
+        MadNLP.full(batch_solver.zl),
     )
     map!(
         (r_, l_, u_, zu_) -> begin
@@ -64,7 +68,11 @@ function init_starting_point!(batch_solver::AbstractBatchMPCSolver{T}) where T
             end
             val
         end,
-        MadNLP.full(batch_solver.zu), res, l, u, MadNLP.full(batch_solver.zu),
+        MadNLP.full(batch_solver.zu),
+        res,
+        l,
+        u,
+        MadNLP.full(batch_solver.zu),
     )
 
     ws = batch_solver.workspace
@@ -142,12 +150,12 @@ function init_starting_point!(batch_solver::AbstractBatchMPCSolver{T}) where T
 
     # delta_s2 = μ / (2 * (sum(xl-lb) + sum(ub-xu)))
     if nlb_init > 0
-        batch_mapreduce!(-, +, zero(T), ws.sum_lb, xl, lb)
+        batch_mapreduce!(-,+,zero(T),ws.sum_lb,xl,lb)
     else
         fill!(ws.sum_lb, zero(T))
     end
     if nub_init > 0
-        batch_mapreduce!(-, +, zero(T), ws.sum_ub, ub, xu)
+        batch_mapreduce!(-,+,zero(T),ws.sum_ub,ub,xu)
     else
         fill!(ws.sum_ub, zero(T))
     end
@@ -174,12 +182,15 @@ function init_starting_point!(batch_solver::AbstractBatchMPCSolver{T}) where T
             end
             out
         end,
-        x, l, u, x,
+        x,
+        l,
+        u,
+        x,
     )
     return
 end
 
-function initialize!(batch_solver::AbstractBatchMPCSolver{T}) where T
+function initialize!(batch_solver::AbstractBatchMPCSolver{T}) where {T}
     opt = batch_solver.opt
     bcb = batch_solver.bcb
     ws = batch_solver.workspace
@@ -193,9 +204,9 @@ function initialize!(batch_solver::AbstractBatchMPCSolver{T}) where T
         MadNLP.full(batch_solver.rhs),
         bcb.ind_ineq,
         ws.bx;
-        tol=opt.bound_relax_factor,
-        bound_push=opt.bound_push,
-        bound_fac=opt.bound_fac,
+        tol = opt.bound_relax_factor,
+        bound_push = opt.bound_push,
+        bound_fac = opt.bound_fac,
     )
     fill!(MadNLP.full(batch_solver.jacl), zero(T))
 
@@ -233,7 +244,7 @@ function initialize!(batch_solver::AbstractBatchMPCSolver{T}) where T
     return
 end
 
-function initialize_solver_state!(batch_solver::AbstractBatchMPCSolver{T}) where T
+function initialize_solver_state!(batch_solver::AbstractBatchMPCSolver{T}) where {T}
     ws = batch_solver.workspace
     opt = batch_solver.opt
     fill!(ws.mu_batch, opt.mu_init)
@@ -261,7 +272,7 @@ function initialize_solver_state!(batch_solver::AbstractBatchMPCSolver{T}) where
     return
 end
 
-function compute_term_gpu!(ws::UniformBatchWorkspace{T}, opt) where T
+function compute_term_gpu!(ws::UniformBatchWorkspace{T}, opt) where {T}
     ds = T(opt.divergence_scale)
     tol = T(opt.tol)
     div_tol = T(opt.divergence_tol)
@@ -307,7 +318,7 @@ function compute_term_gpu!(ws::UniformBatchWorkspace{T}, opt) where T
     minimum!(ws._any_nonregular_gpu, ws._term_gpu)
 end
 
-function update_termination_criteria!(batch_solver::AbstractBatchMPCSolver{T}) where T
+function update_termination_criteria!(batch_solver::AbstractBatchMPCSolver{T}) where {T}
     ws = batch_solver.workspace
     opt = batch_solver.opt
     bcnt = batch_solver.batch_cnt
@@ -319,18 +330,32 @@ function update_termination_criteria!(batch_solver::AbstractBatchMPCSolver{T}) w
     get_inf_pr!(ws.inf_pr, MadNLP.full(batch_solver.c))
     @. ws.inf_pr /= max(one(T), ws.norm_b)
 
-    get_inf_du!(ws.inf_du, MadNLP.full(batch_solver.f), MadNLP.full(zl),
-                MadNLP.full(zu), MadNLP.full(batch_solver.jacl))
+    get_inf_du!(
+        ws.inf_du,
+        MadNLP.full(batch_solver.f),
+        MadNLP.full(zl),
+        MadNLP.full(zu),
+        MadNLP.full(batch_solver.jacl),
+    )
     @. ws.inf_du /= max(one(T), ws.norm_c)
 
-    get_inf_compl!(ws.inf_compl, x, xl, zl, xu, zu,
-        ws.sum_lb, ws.sum_ub, nlb, nub)
+    get_inf_compl!(ws.inf_compl, x, xl, zl, xu, zu, ws.sum_lb, ws.sum_ub, nlb, nub)
     @. ws.inf_compl /= max(one(T), ws.norm_c)
     @. ws.best_complementarity = min(ws.best_complementarity, ws.inf_compl)
 
-    dual_objective!(ws.dual_obj, MadNLP.full(batch_solver.y), MadNLP.full(batch_solver.rhs),
-        lower(zl), lower(xl), upper(zu), upper(xu),
-        ws.sum_lb, ws.sum_ub, nlb, nub)
+    dual_objective!(
+        ws.dual_obj,
+        MadNLP.full(batch_solver.y),
+        MadNLP.full(batch_solver.rhs),
+        lower(zl),
+        lower(xl),
+        upper(zu),
+        upper(xu),
+        ws.sum_lb,
+        ws.sum_ub,
+        nlb,
+        nub,
+    )
 
     update_primal_infeasibility_certificate!(batch_solver)
     update_dual_infeasibility_certificate!(batch_solver)
@@ -346,8 +371,9 @@ function update_termination_status!(batch_solver::AbstractBatchMPCSolver)
     Int_REGULAR = Int64(Int(MadNLP.REGULAR))
 
     walltime_hit = time() - bcnt.start_time[] >= opt.max_wall_time
-    max_iter_hit = walltime_hit ? false :
-        any(ws.status[i] == MadNLP.REGULAR && bcnt.k[i] >= opt.max_iter for i in 1:bs)
+    max_iter_hit =
+        walltime_hit ? false :
+        any(ws.status[i] == MadNLP.REGULAR && bcnt.k[i] >= opt.max_iter for i = 1:bs)
 
     if !walltime_hit && !max_iter_hit
         copyto!(ws._any_nonregular_cpu, ws._any_nonregular_gpu)
@@ -355,7 +381,7 @@ function update_termination_status!(batch_solver::AbstractBatchMPCSolver)
     end
 
     copyto!(ws._term_cpu, ws._term_gpu)
-    @inbounds for i in 1:bs
+    @inbounds for i = 1:bs
         ws.status[i] != MadNLP.REGULAR && continue
         code = MadNLP.Status(ws._term_cpu[i])
         if code != MadNLP.REGULAR
@@ -373,7 +399,7 @@ function solve_system!(
     d::BatchUnreducedKKTVector{T},
     batch_solver::AbstractBatchMPCSolver{T},
     p::BatchUnreducedKKTVector{T},
-) where T
+) where {T}
     copyto!(MadNLP.full(d), MadNLP.full(p))
     MadNLP.solve_kkt!(batch_solver.kkt, batch_solver)
 
@@ -401,7 +427,7 @@ end
 function increment_k!(batch_solver::AbstractBatchMPCSolver)
     bcnt = batch_solver.batch_cnt
     ws = batch_solver.workspace
-    for i in 1:batch_solver.batch_size
+    for i = 1:batch_solver.batch_size
         if ws.status[i] == MadNLP.REGULAR
             bcnt.k[i] += 1
         end
@@ -421,7 +447,14 @@ function update_solution!(stats::BatchExecutionStats, batch_solver::AbstractBatc
     MadNLP.unpack_z!(stats.multipliers_L, bcb, MadNLP.variable(zl))
     MadNLP.unpack_z!(stats.multipliers_U, bcb, MadNLP.variable(zu))
     unpack_obj!(stats.objective, bcb, ws.obj_val)
-    MadNLP.unpack_cons!(stats.constraints, bcb, MadNLP.full(batch_solver.c), MadNLP.full(batch_solver.rhs), bcb.ind_ineq, MadNLP.slack(x))
+    MadNLP.unpack_cons!(
+        stats.constraints,
+        bcb,
+        MadNLP.full(batch_solver.c),
+        MadNLP.full(batch_solver.rhs),
+        bcb.ind_ineq,
+        MadNLP.slack(x),
+    )
 
     stats.dual_feas .= vec(ws.inf_du)
     stats.primal_feas .= vec(ws.inf_pr)
@@ -442,30 +475,48 @@ function prediction_step!(solver::AbstractBatchMPCSolver)
     get_fraction_to_boundary_step!(solver)
     zero_inactive_step!(solver)
     get_affine_complementarity_measure!(solver, ws.alpha_p, ws.alpha_d)
-    get_correction!(solver, MadNLP.full(solver.correction_lb), MadNLP.full(solver.correction_ub))
+    get_correction!(
+        solver,
+        MadNLP.full(solver.correction_lb),
+        MadNLP.full(solver.correction_ub),
+    )
     update_barrier!(solver.opt.barrier_update, solver, ws.mu_affine)
     return
 end
 
 function mehrotra_correction_direction!(solver::AbstractBatchMPCSolver)
-    set_correction_rhs!(solver, solver.kkt, solver.workspace.mu_batch, MadNLP.full(solver.correction_lb), MadNLP.full(solver.correction_ub), nothing, nothing)
+    set_correction_rhs!(
+        solver,
+        solver.kkt,
+        solver.workspace.mu_batch,
+        MadNLP.full(solver.correction_lb),
+        MadNLP.full(solver.correction_ub),
+        nothing,
+        nothing,
+    )
     solve_system!(solver.d, solver, solver.p)
     return
 end
 
-function _bump_failed_regularization!(batch_solver::AbstractBatchMPCSolver{T}, failed_locals, nfailed::Int) where T
+function _bump_failed_regularization!(
+    batch_solver::AbstractBatchMPCSolver{T},
+    failed_locals,
+    nfailed::Int,
+) where {T}
     factor_view = active_view(batch_solver.batch_views)
     ws = batch_solver.workspace
     # build root-level mask from local failed idx
     fill!(ws.active_mask_cpu, zero(T))
-    @inbounds for k in 1:nfailed
+    @inbounds for k = 1:nfailed
         j = factor_view.local_to_root[failed_locals[k]]
         ws.active_mask_cpu[1, j] = one(T)
     end
     copyto!(ws.active_mask, ws.active_mask_cpu)
     mask = ws.active_mask
-    @. batch_solver.del_w = ifelse(mask == one(T), T(100) * batch_solver.del_w, batch_solver.del_w)
-    @. batch_solver.del_c = ifelse(mask == one(T), T(100) * batch_solver.del_c, batch_solver.del_c)
+    @. batch_solver.del_w =
+        ifelse(mask == one(T), T(100) * batch_solver.del_w, batch_solver.del_w)
+    @. batch_solver.del_c =
+        ifelse(mask == one(T), T(100) * batch_solver.del_c, batch_solver.del_c)
     # restore active mask
     # this is required to not throw away any successful factorization that we need later
     _update_active_mask!(batch_solver)
@@ -480,12 +531,10 @@ function factorize_system!(batch_solver::AbstractBatchMPCSolver)
     factor_view = active_view(batch_views)
     failed_locals = batch_views.selected_local_buffer
 
-    for _ in 1:max_trials
+    for _ = 1:max_trials
         set_aug_diagonal_reg!(batch_solver.kkt, batch_solver)
         MadNLP.factorize_wrapper!(batch_solver)
-        nfailed = is_factorized!(
-            failed_locals, batch_solver.kkt.batch_solver, factor_view,
-        )
+        nfailed = is_factorized!(failed_locals, batch_solver.kkt.batch_solver, factor_view)
         nfailed == 0 && break
         _bump_failed_regularization!(batch_solver, failed_locals, nfailed)
     end
@@ -514,7 +563,14 @@ function apply_step!(batch_solver::AbstractBatchMPCSolver)
         upper(zu) .+= ws.alpha_d .* MadNLP.dual_ub(d)
     end
 
-    _adjust_boundary_active!(lower(x), lower(xl), upper(x), upper(xu), ws.mu_batch, ws.active_mask)
+    _adjust_boundary_active!(
+        lower(x),
+        lower(xl),
+        upper(x),
+        upper(xu),
+        ws.mu_batch,
+        ws.active_mask,
+    )
     increment_k!(batch_solver)  # this is CPU work, ends up overlapped
     return
 end
@@ -541,7 +597,7 @@ function mpc_step!(batch_solver::AbstractBatchMPCSolver)
     evaluate_model!(batch_solver)
 end
 
-function _update_active_mask!(batch_solver::AbstractBatchMPCSolver{T}) where T
+function _update_active_mask!(batch_solver::AbstractBatchMPCSolver{T}) where {T}
     ws = batch_solver.workspace
     buf = ws.active_mask_cpu
     fill_batch_view_mask!(buf, active_view(batch_solver.batch_views))
@@ -562,21 +618,21 @@ function mpc!(batch_solver::AbstractBatchMPCSolver)
     end
 end
 
-function solve!(batch_solver::AbstractBatchMPCSolver{T, MT, VT}) where {T, MT, VT}
+function solve!(batch_solver::AbstractBatchMPCSolver{T,MT,VT}) where {T,MT,VT}
     ws = batch_solver.workspace
     bcb = batch_solver.bcb
     bs = batch_solver.batch_size
 
     nvar_nlp = bcb.nlp.meta.nvar
     ncon = bcb.ncon
-    stats = BatchExecutionStats(MT, VT, nvar_nlp, ncon, bs)
+    stats = BatchExecutionStats(MT, VT, nvar_nlp, ncon, bs, batch_solver.batch_cnt)
 
     try
         MadNLP.@notice(batch_solver.logger, "MadIPM batch solve ($bs problems)\n")
         initialize!(batch_solver)
         mpc!(batch_solver)
     catch e
-        for i in 1:bs
+        for i = 1:bs
             if ws.status[i] == MadNLP.REGULAR
                 ws.status[i] = MadNLP.INTERNAL_ERROR
             end
@@ -587,13 +643,16 @@ function solve!(batch_solver::AbstractBatchMPCSolver{T, MT, VT}) where {T, MT, V
         t_end = time()
         bcnt.total_time .= t_end .- bcnt.start_time[]
         update_solution!(stats, batch_solver)
-        status_counts = Dict{MadNLP.Status, Int}()
-        for i in 1:bs
+        status_counts = Dict{MadNLP.Status,Int}()
+        for i = 1:bs
             s = ws.status[i]
             status_counts[s] = get(status_counts, s, 0) + 1
         end
         for (s, cnt) in status_counts
-            MadNLP.@notice(batch_solver.logger, "$(MadNLP.get_status_output(s, batch_solver.opt)): $cnt/$bs")
+            MadNLP.@notice(
+                batch_solver.logger,
+                "$(MadNLP.get_status_output(s, batch_solver.opt)): $cnt/$bs"
+            )
         end
     end
 
@@ -610,12 +669,8 @@ function IPMOptions(
     kkt_system = MadNLP.SparseKKTSystem,
     linear_solver = MadNLP.LDLSolver,
     tol = T(1e-8),
-) where T
-    return IPMOptions(
-        tol = tol,
-        kkt_system = kkt_system,
-        linear_solver = linear_solver,
-    )
+) where {T}
+    return IPMOptions(tol = tol, kkt_system = kkt_system, linear_solver = linear_solver)
 end
 
 function MadNLP.print_iter(batch_solver::AbstractBatchMPCSolver)
@@ -628,13 +683,21 @@ function MadNLP.print_iter(batch_solver::AbstractBatchMPCSolver)
     k = maximum(bcnt.k)
 
     active_str = "$na/$bs"
-    mod(k, 10) == 0 && MadNLP.@info(logger, @sprintf(
-        " iter  active  max_inf_pr  max_inf_du  max_inf_compl  max_alpha_p"))
-    MadNLP.@info(logger, @sprintf(
-        "%4i  ", k) * lpad(active_str, 6) * @sprintf(
-        "   %6.2e     %6.2e      %7.2e      %6.2e",
-        maximum(ws.inf_pr), maximum(ws.inf_du),
-        maximum(ws.inf_compl), maximum(ws.alpha_p),
-    ))
+    mod(k, 10) == 0 && MadNLP.@info(
+        logger,
+        @sprintf(" iter  active  max_inf_pr  max_inf_du  max_inf_compl  max_alpha_p")
+    )
+    MadNLP.@info(
+        logger,
+        @sprintf("%4i  ", k) *
+        lpad(active_str, 6) *
+        @sprintf(
+            "   %6.2e     %6.2e      %7.2e      %6.2e",
+            maximum(ws.inf_pr),
+            maximum(ws.inf_du),
+            maximum(ws.inf_compl),
+            maximum(ws.alpha_p),
+        )
+    )
     return
 end

@@ -49,7 +49,11 @@ function init_starting_point!(solver::MadNLP.AbstractMadNLPSolver)
             end
             val
         end,
-        solver.zl.values, res, l, u, solver.zl.values,
+        solver.zl.values,
+        res,
+        l,
+        u,
+        solver.zl.values,
     )
     map!(
         (r_, l_, u_, zu_) -> begin
@@ -62,20 +66,17 @@ function init_starting_point!(solver::MadNLP.AbstractMadNLPSolver)
             end
             val
         end,
-        solver.zu.values, res, l, u, solver.zu.values,
+        solver.zu.values,
+        res,
+        l,
+        u,
+        solver.zu.values,
     )
 
-    delta_x = max(
-        0.0,
-        -1.5 * minimum(xl .- lb; init=0.0),
-        -1.5 * minimum(ub .- xu; init=0.0),
-    )
+    delta_x =
+        max(0.0, -1.5 * minimum(xl .- lb; init = 0.0), -1.5 * minimum(ub .- xu; init = 0.0))
 
-    delta_s = max(
-        0.0,
-        -1.5 * minimum(zl; init=0.0),
-        -1.5 * minimum(zu; init=0.0),
-    )
+    delta_s = max(0.0, -1.5 * minimum(zl; init = 0.0), -1.5 * minimum(zu; init = 0.0))
 
     xl .= xl .+ delta_x
     xu .= xu .- delta_x
@@ -114,7 +115,9 @@ function init_starting_point!(solver::MadNLP.AbstractMadNLPSolver)
             out
         end,
         x,
-        l, u, x,
+        l,
+        u,
+        x,
     )
 
     @assert all(solver.zl_r .> 0.0)
@@ -124,7 +127,7 @@ function init_starting_point!(solver::MadNLP.AbstractMadNLPSolver)
     return
 end
 
-function initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
+function initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where {T}
     opt = solver.opt
 
     # Ensure the initial point is inside its bounds
@@ -136,9 +139,9 @@ function initialize!(solver::MadNLP.AbstractMadNLPSolver{T}) where T
         solver.y,
         solver.rhs,
         solver.ind_ineq;
-        tol=opt.bound_relax_factor,
-        bound_push=opt.bound_push,
-        bound_fac=opt.bound_fac,
+        tol = opt.bound_relax_factor,
+        bound_push = opt.bound_push,
+        bound_fac = opt.bound_fac,
     )
 
     fill!(solver.jacl, zero(T))
@@ -194,28 +197,31 @@ end
 function update_termination_criteria!(solver::MadNLP.AbstractMadNLPSolver)
     dobj = dual_objective(solver) # dual objective
     solver.inf_pr = MadNLP.get_inf_pr(solver.c) / max(1.0, solver.norm_b)
-    solver.inf_du = MadNLP.get_inf_du(
-        MadNLP.full(solver.f),
-        MadNLP.full(solver.zl),
-        MadNLP.full(solver.zu),
-        solver.jacl,
-        1.0,
-    ) / max(1.0, solver.norm_c)
+    solver.inf_du =
+        MadNLP.get_inf_du(
+            MadNLP.full(solver.f),
+            MadNLP.full(solver.zl),
+            MadNLP.full(solver.zu),
+            solver.jacl,
+            1.0,
+        ) / max(1.0, solver.norm_c)
     solver.inf_compl = get_optimality_gap(solver) / max(1.0, solver.norm_c)
     solver.best_complementarity = min(solver.best_complementarity, solver.inf_compl)
+    iter = solver.cnt.k
 
     if max(solver.inf_pr, solver.inf_du, solver.inf_compl) <= solver.opt.tol
         solver.status = MadNLP.SOLVE_SUCCEEDED
-    elseif has_primal_infeasibility_certificate(solver)
+    elseif (iter >= 3) && has_primal_infeasibility_certificate(solver)
         solver.status = MadNLP.INFEASIBLE_PROBLEM_DETECTED
-    elseif has_dual_infeasibility_certificate(solver)
+    elseif (iter >= 3) && has_dual_infeasibility_certificate(solver)
         solver.status = MadNLP.DIVERGING_ITERATES  # TODO: MadNLP.UNBOUNDED_PROBLEM_DETECTED?
     elseif ((solver.inf_compl > solver.opt.divergence_tol * solver.best_complementarity) &&
             (dobj > max(solver.opt.divergence_scale * abs(solver.obj_val), 1.0)))
         solver.status = MadNLP.INFEASIBLE_PROBLEM_DETECTED
-    elseif solver.obj_val < - solver.opt.divergence_tol * max(solver.opt.divergence_scale * abs(dobj), 1.0)
+    elseif solver.obj_val <
+           - solver.opt.divergence_tol * max(solver.opt.divergence_scale * abs(dobj), 1.0)
         solver.status = MadNLP.DIVERGING_ITERATES
-    elseif solver.cnt.k >= solver.opt.max_iter
+    elseif iter >= solver.opt.max_iter
         solver.status = MadNLP.MAXIMUM_ITERATIONS_EXCEEDED
     elseif time()-solver.cnt.start_time >= solver.opt.max_wall_time
         solver.status = MadNLP.MAXIMUM_WALLTIME_EXCEEDED
@@ -241,7 +247,15 @@ function prediction_step!(solver::MadNLP.AbstractMadNLPSolver)
 end
 
 function mehrotra_correction_direction!(solver)
-    set_correction_rhs!(solver, solver.kkt, solver.mu, solver.correction_lb, solver.correction_ub, solver.ind_lb, solver.ind_ub)
+    set_correction_rhs!(
+        solver,
+        solver.kkt,
+        solver.mu,
+        solver.correction_lb,
+        solver.correction_ub,
+        solver.ind_lb,
+        solver.ind_ub,
+    )
     solve_system!(solver.d, solver, solver.p)
     return
 end
@@ -260,7 +274,7 @@ function gondzio_correction_direction!(solver)
     # TODO: this may be redundant with (alpha_p, alpha_d) computed in Mehrotra correction step.
     alpha_p, alpha_d = get_fraction_to_boundary_step(solver, tau)
 
-    for ncorr in 1:solver.opt.max_ncorr
+    for ncorr = 1:solver.opt.max_ncorr
         # Enlarge step sizes in primal and dual spaces.
         tilde_alpha_p = min(alpha_p + δ, 1.0)
         tilde_alpha_d = min(alpha_d + δ, 1.0)
@@ -270,8 +284,14 @@ function gondzio_correction_direction!(solver)
         mu = (ga / g)^2 * ga  # Eq. (12)
         # Add additional correction.
         set_extra_correction!(
-            solver, solver.correction_lb, solver.correction_ub,
-            tilde_alpha_p, tilde_alpha_d, βmin, βmax, mu,
+            solver,
+            solver.correction_lb,
+            solver.correction_ub,
+            tilde_alpha_p,
+            tilde_alpha_d,
+            βmin,
+            βmax,
+            mu,
         )
         # Update RHS.
         set_correction_rhs!(
@@ -314,7 +334,7 @@ function apply_step!(solver::MadNLP.AbstractMadNLPSolver)
     axpy!(solver.alpha_d, MadNLP.dual(solver.d), solver.y)
     solver.zl_r .+= solver.alpha_d .* MadNLP.dual_lb(solver.d)
     solver.zu_r .+= solver.alpha_d .* MadNLP.dual_ub(solver.d)
-    MadNLP.adjust_boundary!(solver.x_lr,solver.xl_r,solver.x_ur,solver.xu_r,solver.mu)
+    MadNLP.adjust_boundary!(solver.x_lr, solver.xl_r, solver.x_ur, solver.xu_r, solver.mu)
 
     solver.cnt.k += 1
     return
@@ -365,11 +385,12 @@ function mpc!(solver::MadNLP.AbstractMadNLPSolver)
     end
 end
 
-solve!(solver::MadNLP.AbstractMadNLPSolver; kwargs...) = solve!(solver, MadNLP.MadNLPExecutionStats(solver); kwargs...)
+solve!(solver::MadNLP.AbstractMadNLPSolver; kwargs...) =
+    solve!(solver, MadNLP.MadNLPExecutionStats(solver); kwargs...)
 function solve!(
     solver::MadNLP.AbstractMadNLPSolver,
     stats::MadNLP.MadNLPExecutionStats;
-    kwargs...
+    kwargs...,
 )
     nlp = solver.nlp
 
@@ -378,7 +399,10 @@ function solve!(
     end
 
     try
-        MadNLP.@notice(solver.logger,"This is MadIPM, running with $(MadNLP.introduce(solver.kkt.linear_solver))\n")
+        MadNLP.@notice(
+            solver.logger,
+            "This is MadIPM, running with $(MadNLP.introduce(solver.kkt.linear_solver))\n"
+        )
         # MadNLP.print_init(solver)
         initialize!(solver)
         mpc!(solver)
@@ -414,7 +438,10 @@ function solve!(
         if !(solver.status < MadNLP.SOLVE_SUCCEEDED)
             MadNLP.print_summary(solver)
         end
-        MadNLP.@notice(solver.logger,"EXIT: $(MadNLP.get_status_output(solver.status, solver.opt))")
+        MadNLP.@notice(
+            solver.logger,
+            "EXIT: $(MadNLP.get_status_output(solver.status, solver.opt))"
+        )
         finalize(solver.logger)
 
         update_solution!(stats, solver)

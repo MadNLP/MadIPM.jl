@@ -1,10 +1,11 @@
-struct NormalKKTSystem{T, VT, MT, VI, VI32, LS} <: MadNLP.AbstractKKTSystem{T, VT, MT, MadNLP.ExactHessian{T, VT}}
+struct NormalKKTSystem{T,VT,MT,VI,VI32,LS} <:
+       MadNLP.AbstractKKTSystem{T,VT,MT,MadNLP.ExactHessian{T,VT}}
     # Augmented system
     aug_com::MT
     # Jacobian
-    A::MadNLP.SparseMatrixCOO{T,Int32,VT, VI32}
+    A::MadNLP.SparseMatrixCOO{T,Int32,VT,VI32}
     AT::MT
-    A_csr_map::Union{Nothing, VI}
+    A_csr_map::Union{Nothing,VI}
     jac::VT
 
     reg::VT
@@ -30,9 +31,9 @@ function MadNLP.create_kkt_system(
     ::Type{NormalKKTSystem},
     cb::MadNLP.SparseCallback{T,VT},
     linear_solver::Type;
-    opt_linear_solver=MadNLP.default_options(linear_solver),
-    hessian_approximation=MadNLP.ExactHessian,
-    qn_options=MadNLP.QuasiNewtonOptions(),
+    opt_linear_solver = MadNLP.default_options(linear_solver),
+    hessian_approximation = MadNLP.ExactHessian,
+    qn_options = MadNLP.QuasiNewtonOptions(),
 ) where {T,VT}
     n = cb.nvar
     m = cb.ncon
@@ -54,11 +55,11 @@ function MadNLP.create_kkt_system(
     nnzj = length(jac_sparsity_I)
     ntot = n + n_slack
 
-    reg     = VT(undef, ntot)
+    reg = VT(undef, ntot)
     pr_diag = VT(undef, ntot)
     du_diag = VT(undef, m)
-    l_diag  = VT(undef, nlb)
-    u_diag  = VT(undef, nub)
+    l_diag = VT(undef, nlb)
+    u_diag = VT(undef, nub)
     l_lower = VT(undef, nlb)
     u_lower = VT(undef, nub)
 
@@ -72,8 +73,8 @@ function MadNLP.create_kkt_system(
     # Assemble sparsity pattern
     I[1:nnzj] .= jac_sparsity_I
     J[1:nnzj] .= jac_sparsity_J
-    I[nnzj+1:nnzj+n_slack] .= ind_ineq
-    J[nnzj+1:nnzj+n_slack] .= (n+1:n+n_slack)
+    I[(nnzj+1):(nnzj+n_slack)] .= ind_ineq
+    J[(nnzj+1):(nnzj+n_slack)] .= ((n+1):(n+n_slack))
     # Build final COO matrix
     A_coo = MadNLP.SparseMatrixCOO(m, ntot, I, J, V)
     # Get a view to build original LHS
@@ -88,7 +89,9 @@ function MadNLP.create_kkt_system(
 
     # Store transposed matrix in CSC format
     CSC = sparse_csc_format(VT)
-    AT = CSC <: SparseArrays.SparseMatrixCSC ? CSC(ntot, m, Ap, Aj, Ax) : CSC(Ap, Aj, Ax, (ntot, m))
+    AT =
+        CSC <: SparseArrays.SparseMatrixCSC ? CSC(ntot, m, Ap, Aj, Ax) :
+        CSC(Ap, Aj, Ax, (ntot, m))
 
     # Assemble normal KKT system in CSR format
     if CSC <: SparseArrays.SparseMatrixCSC
@@ -107,11 +110,11 @@ function MadNLP.create_kkt_system(
     end
     AAx = VT(undef, length(AAj))
 
-    aug_com = CSC <: SparseArrays.SparseMatrixCSC ? CSC(m, m, AAp, AAj, AAx) : CSC(AAp, AAj, AAx, (m, m))
+    aug_com =
+        CSC <: SparseArrays.SparseMatrixCSC ? CSC(m, m, AAp, AAj, AAx) :
+        CSC(AAp, AAj, AAx, (m, m))
 
-    _linear_solver = linear_solver(
-        aug_com; opt = opt_linear_solver
-    )
+    _linear_solver = linear_solver(aug_com; opt = opt_linear_solver)
 
     fill!(jac, zero(T))
 
@@ -134,19 +137,20 @@ function MadNLP.create_kkt_system(
         ind_ineq,
         cb.ind_lb,
         cb.ind_ub,
-        ntot, m,
+        ntot,
+        m,
     )
 end
 
 MadNLP.num_variables(kkt::NormalKKTSystem) = length(kkt.pr_diag)
 MadNLP.get_jacobian(kkt::NormalKKTSystem) = kkt.jac
-MadNLP.get_hessian(kkt::NormalKKTSystem) = Float64[]
+MadNLP.get_hessian(kkt::NormalKKTSystem) = similar(kkt.pr_diag, 0)
 
 function MadNLP.is_inertia_correct(kkt::NormalKKTSystem, num_pos, num_zero, num_neg)
     return (num_zero == 0) && (num_pos == kkt.m)
 end
 
-function MadNLP.initialize!(kkt::NormalKKTSystem{T}) where T
+function MadNLP.initialize!(kkt::NormalKKTSystem{T}) where {T}
     fill!(kkt.reg, one(T))
     fill!(kkt.pr_diag, one(T))
     fill!(kkt.du_diag, zero(T))
@@ -161,7 +165,7 @@ end
 
 function MadNLP.compress_jacobian!(kkt::NormalKKTSystem)
     n_slack = length(kkt.ind_ineq)
-    kkt.A.V[end-n_slack+1:end] .= -1.0
+    kkt.A.V[(end-n_slack+1):end] .= -1.0
     # Transfer to the matrix A stored in CSC format
     fill!(kkt.AT.nzval, 0.0)
     for i in eachindex(kkt.A_csr_map)
@@ -193,7 +197,14 @@ function MadNLP.build_kkt!(kkt::NormalKKTSystem)
 end
 
 function MadNLP.solve_kkt!(kkt::NormalKKTSystem, w::MadNLP.AbstractKKTVector)
-    MadNLP.reduce_rhs!(w.xp_lr, MadNLP.dual_lb(w), kkt.l_diag, w.xp_ur, MadNLP.dual_ub(w), kkt.u_diag)
+    MadNLP.reduce_rhs!(
+        w.xp_lr,
+        MadNLP.dual_lb(w),
+        kkt.l_diag,
+        w.xp_ur,
+        MadNLP.dual_ub(w),
+        kkt.u_diag,
+    )
     r1 = kkt.buffer_n
     r2 = kkt.buffer_m
     Σ = kkt.pr_diag
@@ -217,7 +228,13 @@ function MadNLP.solve_kkt!(kkt::NormalKKTSystem, w::MadNLP.AbstractKKTVector)
     return w
 end
 
-function MadNLP.mul!(w::MadNLP.AbstractKKTVector{T}, kkt::NormalKKTSystem, v::MadNLP.AbstractKKTVector, alpha = one(T), beta = zero(T)) where {T}
+function MadNLP.mul!(
+    w::MadNLP.AbstractKKTVector{T},
+    kkt::NormalKKTSystem,
+    v::MadNLP.AbstractKKTVector,
+    alpha = one(T),
+    beta = zero(T),
+) where {T}
     wx = MadNLP.primal(w)
     wy = MadNLP.dual(w)
 
@@ -227,6 +244,17 @@ function MadNLP.mul!(w::MadNLP.AbstractKKTVector{T}, kkt::NormalKKTSystem, v::Ma
     mul!(wx, kkt.AT, vy, alpha, beta)
     mul!(wy, kkt.AT', vx, alpha, beta)
 
-    MadNLP._kktmul!(w,v,kkt.reg, kkt.du_diag, kkt.l_lower, kkt.u_lower, kkt.l_diag, kkt.u_diag, alpha, beta)
+    MadNLP._kktmul!(
+        w,
+        v,
+        kkt.reg,
+        kkt.du_diag,
+        kkt.l_lower,
+        kkt.u_lower,
+        kkt.l_diag,
+        kkt.u_diag,
+        alpha,
+        beta,
+    )
     return w
 end
