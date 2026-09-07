@@ -207,12 +207,13 @@ function update_termination_criteria!(solver::MadNLP.AbstractMadNLPSolver)
         ) / max(1.0, solver.norm_c)
     solver.inf_compl = get_optimality_gap(solver) / max(1.0, solver.norm_c)
     solver.best_complementarity = min(solver.best_complementarity, solver.inf_compl)
+    iter = solver.cnt.k
 
     if max(solver.inf_pr, solver.inf_du, solver.inf_compl) <= solver.opt.tol
         solver.status = MadNLP.SOLVE_SUCCEEDED
-    elseif has_primal_infeasibility_certificate(solver)
+    elseif (iter >= 3) && has_primal_infeasibility_certificate(solver)
         solver.status = MadNLP.INFEASIBLE_PROBLEM_DETECTED
-    elseif has_dual_infeasibility_certificate(solver)
+    elseif (iter >= 3) && has_dual_infeasibility_certificate(solver)
         solver.status = MadNLP.DIVERGING_ITERATES  # TODO: MadNLP.UNBOUNDED_PROBLEM_DETECTED?
     elseif ((solver.inf_compl > solver.opt.divergence_tol * solver.best_complementarity) &&
             (dobj > max(solver.opt.divergence_scale * abs(solver.obj_val), 1.0)))
@@ -220,7 +221,7 @@ function update_termination_criteria!(solver::MadNLP.AbstractMadNLPSolver)
     elseif solver.obj_val <
            - solver.opt.divergence_tol * max(solver.opt.divergence_scale * abs(dobj), 1.0)
         solver.status = MadNLP.DIVERGING_ITERATES
-    elseif solver.cnt.k >= solver.opt.max_iter
+    elseif iter >= solver.opt.max_iter
         solver.status = MadNLP.MAXIMUM_ITERATIONS_EXCEEDED
     elseif time()-solver.cnt.start_time >= solver.opt.max_wall_time
         solver.status = MadNLP.MAXIMUM_WALLTIME_EXCEEDED

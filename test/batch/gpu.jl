@@ -27,6 +27,17 @@ function _gpu_batch(qps; Model = ObjRHSBatchQuadraticModel, atol = 1e-6, batch_k
 end
 
 @testset "Batch solver (CUDA)" begin
+    _lin(c, Avals) = LinearModel(
+        LPData(
+            SparseMatrixCOO(1, 2, [1, 1], [1, 2], Avals),
+            c;
+            lcon = [1.0],
+            ucon = [1.0],
+            lvar = [0.0, 0.0],
+            uvar = [Inf, Inf],
+        );
+        x0 = ones(2),
+    )
 
     @testset "GPU gather/scatter" begin
         cpu_bnlp = BatchQuadraticModel([_lp() for _ = 1:4])

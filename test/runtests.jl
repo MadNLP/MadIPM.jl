@@ -537,6 +537,8 @@ end
         infeas_solver.zl_r .= 1.0
         MadNLP.jtprod!(infeas_solver.jacl, infeas_solver.kkt, infeas_solver.y)
         @test MadIPM.has_primal_infeasibility_certificate(infeas_solver)
+        # Check is activated only if have proceeded to at least 3 iterations
+        infeas_solver.cnt.k = 3
         MadIPM.update_termination_criteria!(infeas_solver)
         @test infeas_solver.status == MadNLP.INFEASIBLE_PROBLEM_DETECTED
 
@@ -555,6 +557,8 @@ end
         MadNLP.primal(unbounded_solver.x) .= 1.0
         MadIPM.evaluate_model!(unbounded_solver)
         @test MadIPM.has_dual_infeasibility_certificate(unbounded_solver)
+        # Check is activated only if have proceeded to at least 3 iterations
+        unbounded_solver.cnt.k = 3
         MadIPM.update_termination_criteria!(unbounded_solver)
         @test unbounded_solver.status == MadNLP.DIVERGING_ITERATES
     end
