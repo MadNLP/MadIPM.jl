@@ -14,6 +14,84 @@ function dual_objective!(dual_obj, y_vals, rhs_vals, zl_r, xl_r, zu_r, xu_r,
     return dual_obj
 end
 
+function update_primal_infeasibility_certificate!(batch_solver::AbstractBatchMPCSolver{T}) where T
+    ws = batch_solver.workspace
+    y = MadNLP.full(batch_solver.y)
+    rhs = MadNLP.full(batch_solver.rhs)
+    jacl = MadNLP.full(batch_solver.jacl)
+    zl = MadNLP.full(batch_solver.zl)
+    zu = MadNLP.full(batch_solver.zu)
+    nlb, nub = batch_solver.d.nlb, batch_solver.d.nub
+
+    cert_norm = ws.sum_lb
+    batch_mapreduce!(abs, max, zero(T), cert_norm, y)
+    if nlb > 0
+        batch_mapreduce!(abs, max, zero(T), ws.sum_ub, lower(batch_solver.zl))
+        @. cert_norm = max(cert_norm, ws.sum_ub)
+    end
+    if nub > 0
+        batch_mapreduce!(abs, max, zero(T), ws.sum_ub, upper(batch_solver.zu))
+        @. cert_norm = max(cert_norm, ws.sum_ub)
+    end
+    @. cert_norm = max(one(T), cert_norm)
+
+    batch_mapreduce!((jl, zl_i, zu_i) -> abs(jl - zl_i + zu_i), max, zero(T),
+                     ws.primal_cert_res, jacl, zl, zu)
+    @. ws.primal_cert_res /= cert_norm
+
+    data_norm = ws.sum_ub
+    batch_mapreduce!(abs, max, zero(T), data_norm, rhs)
+    if nlb > 0
+        batch_mapreduce!(abs, max, zero(T), ws.mu_curr, lower(batch_solver.xl))
+        @. data_norm = max(data_norm, ws.mu_curr)
+    end
+    if nub > 0
+        batch_mapreduce!(abs, max, zero(T), ws.mu_curr, upper(batch_solver.xu))
+        @. data_norm = max(data_norm, ws.mu_curr)
+    end
+    @. data_norm = max(one(T), data_norm)
+    @. ws.primal_cert_margin = ws.dual_obj / (cert_norm * data_norm)
+    return
+end
+
+function update_dual_infeasibility_certificate!(batch_solver::AbstractBatchMPCSolver{T}) where T
+    ws = batch_solver.workspace
+    if !batch_solver.bcb.nlp.meta.islp
+        fill!(ws.dual_cert_res, typemax(T))
+        fill!(ws.dual_cert_bound, typemax(T))
+        fill!(ws.dual_cert_margin, -typemax(T))
+        return
+    end
+
+    x = MadNLP.primal(batch_solver.x)
+    ray = MadNLP.primal(batch_solver._w1)
+    batch_mapreduce!(abs, max, zero(T), ws.sum_lb, x)
+    @. ws.sum_lb = max(one(T), ws.sum_lb)
+    @. ray = x / ws.sum_lb
+
+    batch_mapreduce!((c_i, rhs_i) -> abs(c_i + rhs_i), max, zero(T),
+                     ws.dual_cert_res, MadNLP.full(batch_solver.c), MadNLP.full(batch_solver.rhs))
+    @. ws.dual_cert_res /= ws.sum_lb
+
+    nlb, nub = batch_solver.d.nlb, batch_solver.d.nub
+    fill!(ws.dual_cert_bound, zero(T))
+    if nlb > 0
+        batch_mapreduce!(d -> max(zero(d), -d), max, zero(T),
+                         ws.dual_cert_bound, xp_lr(batch_solver._w1))
+    end
+    if nub > 0
+        batch_mapreduce!(d -> max(zero(d), d), max, zero(T),
+                         ws.sum_ub, xp_ur(batch_solver._w1))
+        @. ws.dual_cert_bound = max(ws.dual_cert_bound, ws.sum_ub)
+    end
+
+    batch_mapreduce!(*, +, zero(T), ws.dual_cert_margin, MadNLP.primal(batch_solver.f), ray)
+    batch_mapreduce!(abs, max, zero(T), ws.sum_ub, MadNLP.primal(batch_solver.f))
+    @. ws.sum_ub = max(one(T), ws.sum_ub)
+    @. ws.dual_cert_margin = -ws.dual_cert_margin / ws.sum_ub
+    return
+end
+
 function set_initial_primal_rhs!(solver::AbstractBatchMPCSolver)
     p = solver.p
     fill!(MadNLP.full(p), 0.0)

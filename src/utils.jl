@@ -80,6 +80,9 @@ end
     max_wall_time::Float64 = 1e6
     divergence_tol::Float64 = 1e4
     divergence_scale::Float64 = 10.0
+    certificate_termination::Bool = true
+    primal_infeasibility_cert_tol::Float64 = 1e-7
+    dual_infeasibility_cert_tol::Float64 = 1e-7
     kappa_d::Float64 = 1e-5
     fixed_variable_treatment::Type = kkt_system <: MadNLP.SparseCondensedKKTSystem ? MadNLP.RelaxBound : MadNLP.MakeParameter
     equality_treatment::Type = kkt_system <: MadNLP.SparseCondensedKKTSystem ? MadNLP.RelaxEquality : MadNLP.EnforceEquality

@@ -437,6 +437,58 @@ function dual_objective(solver::MPCSolver)
     return dobj
 end
 
+function has_primal_infeasibility_certificate(solver::MPCSolver{T}) where {T}
+    solver.opt.certificate_termination || return false
+    cert_norm = max(
+        one(T),
+        norm(solver.y, Inf),
+        norm(solver.zl_r, Inf),
+        norm(solver.zu_r, Inf),
+    )
+    data_norm = max(
+        one(T),
+        norm(solver.rhs, Inf),
+        norm(solver.xl_r, Inf),
+        norm(solver.xu_r, Inf),
+    )
+    residual = MadNLP.primal(solver._w2)
+    copyto!(residual, solver.jacl)
+    residual .-= MadNLP.full(solver.zl)
+    residual .+= MadNLP.full(solver.zu)
+    cert_res = norm(residual, Inf) / cert_norm
+    cert_margin = dual_objective(solver) / (cert_norm * data_norm)
+    tol = solver.opt.primal_infeasibility_cert_tol
+    return isfinite(cert_res) && isfinite(cert_margin) &&
+           cert_res <= tol && cert_margin > tol
+end
+
+function has_dual_infeasibility_certificate(solver::MPCSolver{T}) where {T}
+    solver.opt.certificate_termination || return false
+    solver.class isa LinearProgram || return false
+    # For QPs, we also need to check the curvative, but this is not implemented.
+    # So we only detect dual infeasibility for LPs. For QPs, we rely on the
+    # diverging iterates check.
+
+    x = MadNLP.primal(solver.x)
+    ray_norm = max(one(T), norm(x, Inf))
+
+    lhs = MadNLP.dual(solver._w2)
+    copyto!(lhs, solver.c)
+    lhs .+= solver.rhs
+    cert_res = norm(lhs, Inf) / ray_norm
+
+    lower_violation = isempty(solver.x_lr) ? zero(T) : max(zero(T), -minimum(solver.x_lr) / ray_norm)
+    upper_violation = isempty(solver.x_ur) ? zero(T) : max(zero(T), maximum(solver.x_ur) / ray_norm)
+    bound_violation = max(lower_violation, upper_violation)
+
+    obj_ray = dot(MadNLP.primal(solver.f), x) / ray_norm
+    obj_norm = max(one(T), norm(MadNLP.primal(solver.f), Inf))
+    cert_margin = -obj_ray / obj_norm
+    tol = solver.opt.dual_infeasibility_cert_tol
+    return isfinite(cert_res) && isfinite(bound_violation) && isfinite(cert_margin) &&
+           cert_res <= tol && bound_violation <= tol && cert_margin > tol
+end
+
 function get_optimality_gap(solver::MPCSolver)
     return MadNLP.get_inf_compl(
         solver.x_lr,

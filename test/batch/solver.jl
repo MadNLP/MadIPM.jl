@@ -331,6 +331,11 @@ end
         ws.best_complementarity .= best
         ws.obj_val .= obj
         ws.dual_obj .= dobj
+        ws.primal_cert_res .= 1.0
+        ws.primal_cert_margin .= -1.0
+        ws.dual_cert_res .= 1.0
+        ws.dual_cert_bound .= 1.0
+        ws.dual_cert_margin .= -1.0
         fill!(ws._ls_error, ls)
     end
     _s(j) = MadNLP.Status(ws._term_gpu[1,j])
@@ -346,6 +351,19 @@ end
     _set!(ic=1e10, best=1e-8, dobj=1e12, obj=1.0)
     MadIPM.compute_term_gpu!(ws, bat.opt)
     @test _s(1) == MadNLP.INFEASIBLE_PROBLEM_DETECTED
+
+    _set!()
+    ws.primal_cert_res .= bat.opt.primal_infeasibility_cert_tol / 10
+    ws.primal_cert_margin .= bat.opt.primal_infeasibility_cert_tol * 10
+    MadIPM.compute_term_gpu!(ws, bat.opt)
+    @test _s(1) == MadNLP.INFEASIBLE_PROBLEM_DETECTED
+
+    _set!()
+    ws.dual_cert_res .= bat.opt.dual_infeasibility_cert_tol / 10
+    ws.dual_cert_bound .= bat.opt.dual_infeasibility_cert_tol / 10
+    ws.dual_cert_margin .= bat.opt.dual_infeasibility_cert_tol * 10
+    MadIPM.compute_term_gpu!(ws, bat.opt)
+    @test _s(1) == MadNLP.DIVERGING_ITERATES
 
     _set!(dobj=1.0, obj=-(dt*ds*2))
     MadIPM.compute_term_gpu!(ws, bat.opt)
