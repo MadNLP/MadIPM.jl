@@ -31,26 +31,52 @@ function QuadraticModel(
 ) where {T}
     nvar = length(c)
     ncon = max(length(lcon), length(ucon), isempty(Arows) ? 0 : maximum(Arows))
-    A = SparseMatrixCOO(ncon, nvar, Vector{Int}(Arows), Vector{Int}(Acols), Vector{T}(Avals))
-    H = SparseMatrixCOO(nvar, nvar, Vector{Int}(Hrows), Vector{Int}(Hcols), Vector{T}(Hvals))
+    A = SparseMatrixCOO(
+        ncon,
+        nvar,
+        Vector{Int}(Arows),
+        Vector{Int}(Acols),
+        Vector{T}(Avals),
+    )
+    H = SparseMatrixCOO(
+        nvar,
+        nvar,
+        Vector{Int}(Hrows),
+        Vector{Int}(Hcols),
+        Vector{T}(Hvals),
+    )
     lcon_ = isempty(lcon) ? fill(T(-Inf), ncon) : Vector{T}(lcon)
-    ucon_ = isempty(ucon) ? fill(T(Inf), ncon)  : Vector{T}(ucon)
-    y0_   = length(y0) == ncon ? Vector{T}(y0) : zeros(T, ncon)
-    data = QPData(A, Vector{T}(c), H;
-        lvar = Vector{T}(lvar), uvar = Vector{T}(uvar),
-        lcon = lcon_, ucon = ucon_, c0 = T(c0))
-    return QuadraticModel(data; x0 = Vector{T}(x0), y0 = y0_, minimize = minimize, name = name)
+    ucon_ = isempty(ucon) ? fill(T(Inf), ncon) : Vector{T}(ucon)
+    y0_ = length(y0) == ncon ? Vector{T}(y0) : zeros(T, ncon)
+    data = QPData(
+        A,
+        Vector{T}(c),
+        H;
+        lvar = Vector{T}(lvar),
+        uvar = Vector{T}(uvar),
+        lcon = lcon_,
+        ucon = ucon_,
+        c0 = T(c0),
+    )
+    return QuadraticModel(
+        data;
+        x0 = Vector{T}(x0),
+        y0 = y0_,
+        minimize = minimize,
+        name = name,
+    )
 end
 
-function _compare_with_nlp(n, m, ind_fixed, ind_eq; max_ncorr=0, atol=1e-5)
+function _compare_with_nlp(n, m, ind_fixed, ind_eq; max_ncorr = 0, atol = 1e-5)
     x0 = zeros(n)
-    qp = MadNLPTests.DenseDummyQP(x0; m=m)
+    qp = MadNLPTests.DenseDummyQP(x0; m = m)
     # Solve with MadNLP for reference.
     # Set `bound_relax_factor=1e-10` to get same behavior as in MadQP.
-    nlp_solver = MadNLP.MadNLPSolver(qp; print_level=MadNLP.ERROR, bound_relax_factor=1e-10)
+    nlp_solver =
+        MadNLP.MadNLPSolver(qp; print_level = MadNLP.ERROR, bound_relax_factor = 1e-10)
     nlp_stats = MadNLP.solve!(nlp_solver)
 
-    qp_solver = MadIPM.MPCSolver(qp; print_level=MadNLP.ERROR, max_ncorr=max_ncorr)
+    qp_solver = MadIPM.MPCSolver(qp; print_level = MadNLP.ERROR, max_ncorr = max_ncorr)
     qp_stats = MadIPM.solve!(qp_solver)
 
     @test qp_stats.status == MadNLP.SOLVE_SUCCEEDED
@@ -97,36 +123,32 @@ end
 @testset "Test with DenseDummyQP" begin
     # Test results match with MadNLP
     @testset "Size: ($n, $m)" for (n, m) in [(10, 0), (10, 5), (50, 10)]
-        _compare_with_nlp(n, m, Int[], Int[]; atol=1e-4)
+        _compare_with_nlp(n, m, Int[], Int[]; atol = 1e-4)
     end
     @testset "Equality constraints" begin
         n, m = 20, 15
         # Default Mehrotra-predictor.
-        _compare_with_nlp(n, m, Int[], Int[1, 2, 3, 8]; atol=1e-5, max_ncorr=0)
+        _compare_with_nlp(n, m, Int[], Int[1, 2, 3, 8]; atol = 1e-5, max_ncorr = 0)
         # Gondzio's multiple correction.
-        _compare_with_nlp(n, m, Int[], Int[1, 2, 3, 8]; atol=1e-5, max_ncorr=5)
+        _compare_with_nlp(n, m, Int[], Int[1, 2, 3, 8]; atol = 1e-5, max_ncorr = 5)
     end
     @testset "Fixed variables" begin
         n, m = 20, 15
-        _compare_with_nlp(n, m, Int[1, 2], Int[]; atol=1e-5)
-        _compare_with_nlp(n, m, Int[1, 2], Int[1, 2, 3, 8]; atol=1e-5)
+        _compare_with_nlp(n, m, Int[1, 2], Int[]; atol = 1e-5)
+        _compare_with_nlp(n, m, Int[1, 2], Int[1, 2, 3, 8]; atol = 1e-5)
     end
 
     # Test inner working in MadIPM
     n, m = 10, 5
     x0 = zeros(n)
-    qp = MadNLPTests.DenseDummyQP(x0; m=m)
+    qp = MadNLPTests.DenseDummyQP(x0; m = m)
 
     @testset "Step rule $rule" for rule in [
         MadIPM.AdaptiveStep(0.99),
         MadIPM.ConservativeStep(0.99),
         MadIPM.MehrotraAdaptiveStep(0.99),
     ]
-        qp_solver = MadIPM.MPCSolver(
-            qp;
-            print_level=MadNLP.ERROR,
-            step_rule=rule,
-        )
+        qp_solver = MadIPM.MPCSolver(qp; print_level = MadNLP.ERROR, step_rule = rule)
         qp_stats = MadIPM.solve!(qp_solver)
         @test qp_stats.status == MadNLP.SOLVE_SUCCEEDED
     end
@@ -134,16 +156,16 @@ end
     # Compute reference solution
     qp_solver = MadIPM.MPCSolver(
         qp;
-        print_level=MadNLP.ERROR,
-        regularization=MadIPM.NoRegularization(),
+        print_level = MadNLP.ERROR,
+        regularization = MadIPM.NoRegularization(),
     )
     sol_ref = MadIPM.solve!(qp_solver)
 
     @testset "K2.5 KKT linear system" begin
         qp_k25 = MadIPM.MPCSolver(
             qp;
-            print_level=MadNLP.ERROR,
-            kkt_system=MadNLP.ScaledSparseKKTSystem,
+            print_level = MadNLP.ERROR,
+            kkt_system = MadNLP.ScaledSparseKKTSystem,
         )
         sol_k25 = MadIPM.solve!(qp_k25)
         @test sol_k25.status == MadNLP.SOLVE_SUCCEEDED
@@ -160,10 +182,10 @@ end
     ]
         solver = MadIPM.MPCSolver(
             qp;
-            linear_solver=LDLSolver,
-            print_level=MadNLP.ERROR,
-            regularization=reg,
-            rethrow_error=true,
+            linear_solver = LDLSolver,
+            print_level = MadNLP.ERROR,
+            regularization = reg,
+            rethrow_error = true,
         )
         sol = MadIPM.solve!(solver)
 
@@ -178,7 +200,7 @@ end
 
 # Is (x, y) a KKT point of `qp` in the presolver's convention
 # c + Q x - Aᵀy = z_l - z_u with z_l, z_u >= 0?
-function presolve_kkt_ok(qp, x, y; tol=1e-8)
+function presolve_kkt_ok(qp, x, y; tol = 1e-8)
     n, m = NLPModels.get_nvar(qp), NLPModels.get_ncon(qp)
     Ac = MadIPM.Models.operator_sparse_matrix(qp.data.A)
     A = sparse(Ac.rows, Ac.cols, Ac.vals, m, n)
@@ -190,7 +212,7 @@ function presolve_kkt_ok(qp, x, y; tol=1e-8)
     r = A * x
     all(lcon .- tol .<= r .<= ucon .+ tol) || return false
     z = qp.data.c .+ Q * x .- A' * y
-    for j in 1:n
+    for j = 1:n
         at_l = x[j] <= lvar[j] + tol
         at_u = x[j] >= uvar[j] - tol
         (at_l && at_u) && continue
@@ -198,7 +220,7 @@ function presolve_kkt_ok(qp, x, y; tol=1e-8)
         at_u && (z[j] <= tol || return false; continue)
         abs(z[j]) <= tol || return false
     end
-    for i in 1:m
+    for i = 1:m
         lcon[i] == ucon[i] && continue
         at_l = r[i] <= lcon[i] + tol
         at_u = r[i] >= ucon[i] - tol
@@ -214,8 +236,8 @@ end
 
     qp_solver = MadIPM.MPCSolver(
         qp;
-        print_level=MadNLP.ERROR,
-        regularization=MadIPM.NoRegularization(),
+        print_level = MadNLP.ERROR,
+        regularization = MadIPM.NoRegularization(),
     )
     sol_ref = MadIPM.solve!(qp_solver)
 
@@ -226,19 +248,37 @@ end
         @test m === qp
 
         # model with fixed variable should reduce
-        qp_fixed = QuadraticModel([1.0, 1.0, 1.0], Int[], Int[], Float64[];
-            Arows=[1,1], Acols=[1,2], Avals=[1.0, 1.0],
-            lcon=[1.0], ucon=[1.0],
-            lvar=[0.0, 0.0, 1.0], uvar=[Inf, Inf, 1.0])
+        qp_fixed = QuadraticModel(
+            [1.0, 1.0, 1.0],
+            Int[],
+            Int[],
+            Float64[];
+            Arows = [1, 1],
+            Acols = [1, 2],
+            Avals = [1.0, 1.0],
+            lcon = [1.0],
+            ucon = [1.0],
+            lvar = [0.0, 0.0, 1.0],
+            uvar = [Inf, Inf, 1.0],
+        )
         red, status = MadIPM.presolve_qp(qp_fixed)
         @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
         @test NLPModels.get_nvar(red) == 2
 
         # singleton row: bounds transferred onto x1, row removed
-        qp_srow = QuadraticModel([1.0, 1.0], Int[], Int[], Float64[];
-            Arows=[1,1,2], Acols=[1,2,1], Avals=[1.0, 1.0, 2.0],
-            lcon=[1.0, 0.0], ucon=[1.0, 4.0],
-            lvar=[0.0, 0.0], uvar=[Inf, Inf])
+        qp_srow = QuadraticModel(
+            [1.0, 1.0],
+            Int[],
+            Int[],
+            Float64[];
+            Arows = [1, 1, 2],
+            Acols = [1, 2, 1],
+            Avals = [1.0, 1.0, 2.0],
+            lcon = [1.0, 0.0],
+            ucon = [1.0, 4.0],
+            lvar = [0.0, 0.0],
+            uvar = [Inf, Inf],
+        )
         red, status = MadIPM.presolve_qp(qp_srow)
         @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
         @test NLPModels.get_ncon(red) == 1
@@ -246,10 +286,19 @@ end
         @test NLPModels.get_uvar(red)[1] == 2.0  # 0 <= 2*x1 <= 4
 
         # free row (bounds (-Inf, Inf)) removed
-        qp_frow = QuadraticModel([1.0, 1.0], Int[], Int[], Float64[];
-            Arows=[1,1,2,2], Acols=[1,2,1,2], Avals=[1.0, 1.0, 1.0, -1.0],
-            lcon=[1.0, -Inf], ucon=[1.0, Inf],
-            lvar=[0.0, 0.0], uvar=[Inf, Inf])
+        qp_frow = QuadraticModel(
+            [1.0, 1.0],
+            Int[],
+            Int[],
+            Float64[];
+            Arows = [1, 1, 2, 2],
+            Acols = [1, 2, 1, 2],
+            Avals = [1.0, 1.0, 1.0, -1.0],
+            lcon = [1.0, -Inf],
+            ucon = [1.0, Inf],
+            lvar = [0.0, 0.0],
+            uvar = [Inf, Inf],
+        )
         red, status = MadIPM.presolve_qp(qp_frow)
         @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
         @test NLPModels.get_ncon(red) == 1
@@ -259,12 +308,23 @@ end
         # min x1 + x2 + x3  s.t.  x1 + x2 == 1,  x2 + x3 >= 2
         # y2 = c3/a23 = 1 > 0 → row 2 binds at lcon = 2; eliminating (x3, row 2)
         # gives  min x1 + 0*x2 + 2  s.t.  x1 + x2 == 1.
-        qp_fsc = QuadraticModel([1.0, 1.0, 1.0], Int[], Int[], Float64[];
-            Arows=[1,1,2,2], Acols=[1,2,2,3], Avals=[1.0, 1.0, 1.0, 1.0],
-            lcon=[1.0, 2.0], ucon=[1.0, Inf],
-            lvar=[0.0, 0.0, -Inf], uvar=[Inf, Inf, Inf])
+        qp_fsc = QuadraticModel(
+            [1.0, 1.0, 1.0],
+            Int[],
+            Int[],
+            Float64[];
+            Arows = [1, 1, 2, 2],
+            Acols = [1, 2, 2, 3],
+            Avals = [1.0, 1.0, 1.0, 1.0],
+            lcon = [1.0, 2.0],
+            ucon = [1.0, Inf],
+            lvar = [0.0, 0.0, -Inf],
+            uvar = [Inf, Inf, Inf],
+        )
         status, res = MadIPM.Models.Presolve.apply_presolve(
-            MadIPM.Models.Presolve.BasicPresolver(), qp_fsc)
+            MadIPM.Models.Presolve.BasicPresolver(),
+            qp_fsc,
+        )
         @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
         red = res.reduced_model
         @test NLPModels.get_nvar(red) == 2
@@ -279,11 +339,23 @@ end
         # forcing row: min x1 + x2  s.t.  x1 + x2 >= 2,  0 <= x <= 1.
         # The bounds allow an activity of at most 2, so both variables are
         # pinned at their upper bound and nothing is left to solve.
-        qp_force = QuadraticModel([1.0, 1.0], Int[], Int[], Float64[];
-            Arows=[1,1], Acols=[1,2], Avals=[1.0, 1.0],
-            lcon=[2.0], ucon=[Inf], lvar=[0.0, 0.0], uvar=[1.0, 1.0])
+        qp_force = QuadraticModel(
+            [1.0, 1.0],
+            Int[],
+            Int[],
+            Float64[];
+            Arows = [1, 1],
+            Acols = [1, 2],
+            Avals = [1.0, 1.0],
+            lcon = [2.0],
+            ucon = [Inf],
+            lvar = [0.0, 0.0],
+            uvar = [1.0, 1.0],
+        )
         status, res = MadIPM.Models.Presolve.apply_presolve(
-            MadIPM.Models.Presolve.BasicPresolver(), qp_force)
+            MadIPM.Models.Presolve.BasicPresolver(),
+            qp_force,
+        )
         @test status == MadIPM.Models.Presolve.PRESOLVE_SOLVED
         @test res.objective_value ≈ 2.0
         x, y = MadIPM.Models.Presolve.recover_solution(res, Float64[], Float64[])
@@ -294,12 +366,23 @@ end
         # forcing row next to a surviving row; the pinned x2 also appears in
         # row 2, so that row's multiplier feeds back into the forcing-row one.
         # min x1 + x2 + 2 x3 + x4  s.t.  x1 + x2 >= 2,  x2 + x3 + x4 >= 1.5,  0 <= x <= 1
-        qp_force2 = QuadraticModel([1.0, 1.0, 2.0, 1.0], Int[], Int[], Float64[];
-            Arows=[1,1,2,2,2], Acols=[1,2,2,3,4], Avals=[1.0, 1.0, 1.0, 1.0, 1.0],
-            lcon=[2.0, 1.5], ucon=[Inf, Inf],
-            lvar=zeros(4), uvar=ones(4))
+        qp_force2 = QuadraticModel(
+            [1.0, 1.0, 2.0, 1.0],
+            Int[],
+            Int[],
+            Float64[];
+            Arows = [1, 1, 2, 2, 2],
+            Acols = [1, 2, 2, 3, 4],
+            Avals = [1.0, 1.0, 1.0, 1.0, 1.0],
+            lcon = [2.0, 1.5],
+            ucon = [Inf, Inf],
+            lvar = zeros(4),
+            uvar = ones(4),
+        )
         status, res = MadIPM.Models.Presolve.apply_presolve(
-            MadIPM.Models.Presolve.BasicPresolver(), qp_force2)
+            MadIPM.Models.Presolve.BasicPresolver(),
+            qp_force2,
+        )
         @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
         red = res.reduced_model
         @test NLPModels.get_nvar(red) == 2
@@ -314,11 +397,23 @@ end
 
         # two forcing rows in one pass; the second one sees x2 already pinned
         # min x1 + x2 + x3 + x4  s.t.  x1 + x2 >= 2,  x2 + x3 + x4 >= 3,  0 <= x <= 1
-        qp_force3 = QuadraticModel(ones(4), Int[], Int[], Float64[];
-            Arows=[1,1,2,2,2], Acols=[1,2,2,3,4], Avals=ones(5),
-            lcon=[2.0, 3.0], ucon=[Inf, Inf], lvar=zeros(4), uvar=ones(4))
+        qp_force3 = QuadraticModel(
+            ones(4),
+            Int[],
+            Int[],
+            Float64[];
+            Arows = [1, 1, 2, 2, 2],
+            Acols = [1, 2, 2, 3, 4],
+            Avals = ones(5),
+            lcon = [2.0, 3.0],
+            ucon = [Inf, Inf],
+            lvar = zeros(4),
+            uvar = ones(4),
+        )
         status, res = MadIPM.Models.Presolve.apply_presolve(
-            MadIPM.Models.Presolve.BasicPresolver(), qp_force3)
+            MadIPM.Models.Presolve.BasicPresolver(),
+            qp_force3,
+        )
         @test status == MadIPM.Models.Presolve.PRESOLVE_SOLVED
         @test res.objective_value ≈ 4.0
         x, y = MadIPM.Models.Presolve.recover_solution(res, Float64[], Float64[])
@@ -326,11 +421,23 @@ end
         @test presolve_kkt_ok(qp_force3, x, y)
 
         # forcing row on a QP: min ½(x1² + x2²) - 3 x1  s.t.  x1 + x2 >= 2,  0 <= x <= 1
-        qp_forceq = QuadraticModel([-3.0, 0.0], [1, 2], [1, 2], [1.0, 1.0];
-            Arows=[1,1], Acols=[1,2], Avals=[1.0, 1.0],
-            lcon=[2.0], ucon=[Inf], lvar=[0.0, 0.0], uvar=[1.0, 1.0])
+        qp_forceq = QuadraticModel(
+            [-3.0, 0.0],
+            [1, 2],
+            [1, 2],
+            [1.0, 1.0];
+            Arows = [1, 1],
+            Acols = [1, 2],
+            Avals = [1.0, 1.0],
+            lcon = [2.0],
+            ucon = [Inf],
+            lvar = [0.0, 0.0],
+            uvar = [1.0, 1.0],
+        )
         status, res = MadIPM.Models.Presolve.apply_presolve(
-            MadIPM.Models.Presolve.BasicPresolver(), qp_forceq)
+            MadIPM.Models.Presolve.BasicPresolver(),
+            qp_forceq,
+        )
         @test status == MadIPM.Models.Presolve.PRESOLVE_SOLVED
         @test res.objective_value ≈ -2.0
         x, y = MadIPM.Models.Presolve.recover_solution(res, Float64[], Float64[])
@@ -341,11 +448,24 @@ end
         # forcing row on a maximization: max -x1 - x2  s.t.  x1 + x2 >= 2,  0 <= x <= 1.
         # Same pins as qp_force; the multiplier keeps the file's c - Aᵀy
         # convention with the original cost, so it flips sign.
-        qp_forcemax = QuadraticModel([-1.0, -1.0], Int[], Int[], Float64[];
-            Arows=[1,1], Acols=[1,2], Avals=[1.0, 1.0],
-            lcon=[2.0], ucon=[Inf], lvar=[0.0, 0.0], uvar=[1.0, 1.0], minimize=false)
+        qp_forcemax = QuadraticModel(
+            [-1.0, -1.0],
+            Int[],
+            Int[],
+            Float64[];
+            Arows = [1, 1],
+            Acols = [1, 2],
+            Avals = [1.0, 1.0],
+            lcon = [2.0],
+            ucon = [Inf],
+            lvar = [0.0, 0.0],
+            uvar = [1.0, 1.0],
+            minimize = false,
+        )
         status, res = MadIPM.Models.Presolve.apply_presolve(
-            MadIPM.Models.Presolve.BasicPresolver(), qp_forcemax)
+            MadIPM.Models.Presolve.BasicPresolver(),
+            qp_forcemax,
+        )
         @test status == MadIPM.Models.Presolve.PRESOLVE_SOLVED
         @test res.objective_value ≈ -2.0
         x, y = MadIPM.Models.Presolve.recover_solution(res, Float64[], Float64[])
@@ -355,10 +475,19 @@ end
         # redundant row (implied by the bounds) is dropped; a range row whose
         # lower side can never bind keeps only its upper side.
         # -1 <= x1 + x2 <= 3  and  -5 <= x1 - x2 <= 0.5  with  0 <= x <= 1
-        qp_red = QuadraticModel([1.0, 1.0], Int[], Int[], Float64[];
-            Arows=[1,1,2,2], Acols=[1,2,1,2], Avals=[1.0, 1.0, 1.0, -1.0],
-            lcon=[-1.0, -5.0], ucon=[3.0, 0.5],
-            lvar=[0.0, 0.0], uvar=[1.0, 1.0])
+        qp_red = QuadraticModel(
+            [1.0, 1.0],
+            Int[],
+            Int[],
+            Float64[];
+            Arows = [1, 1, 2, 2],
+            Acols = [1, 2, 1, 2],
+            Avals = [1.0, 1.0, 1.0, -1.0],
+            lcon = [-1.0, -5.0],
+            ucon = [3.0, 0.5],
+            lvar = [0.0, 0.0],
+            uvar = [1.0, 1.0],
+        )
         red, status = MadIPM.presolve_qp(qp_red)
         @test status == MadIPM.Models.Presolve.PRESOLVE_REDUCED
         @test NLPModels.get_ncon(red) == 1
@@ -366,17 +495,29 @@ end
         @test NLPModels.get_ucon(red) == [0.5]
 
         # activity bounds prove infeasibility: x1 + x2 >= 3 with x <= 1
-        qp_inf = QuadraticModel([1.0, 1.0], Int[], Int[], Float64[];
-            Arows=[1,1], Acols=[1,2], Avals=[1.0, 1.0],
-            lcon=[3.0], ucon=[Inf], lvar=[0.0, 0.0], uvar=[1.0, 1.0])
+        qp_inf = QuadraticModel(
+            [1.0, 1.0],
+            Int[],
+            Int[],
+            Float64[];
+            Arows = [1, 1],
+            Acols = [1, 2],
+            Avals = [1.0, 1.0],
+            lcon = [3.0],
+            ucon = [Inf],
+            lvar = [0.0, 0.0],
+            uvar = [1.0, 1.0],
+        )
         status, _ = MadIPM.Models.Presolve.apply_presolve(
-            MadIPM.Models.Presolve.BasicPresolver(), qp_inf)
+            MadIPM.Models.Presolve.BasicPresolver(),
+            qp_inf,
+        )
         @test status == MadIPM.Models.Presolve.PRESOLVE_INFEASIBLE
     end
 
     @testset "Standard formulation" begin
         new_qp = MadIPM.standard_form_qp(qp)
-        solver = MadIPM.MPCSolver(new_qp; print_level=MadNLP.ERROR)
+        solver = MadIPM.MPCSolver(new_qp; print_level = MadNLP.ERROR)
         sol = MadIPM.solve!(solver)
         @test sol.objective ≈ sol_ref.objective atol=1e-6
     end
@@ -384,24 +525,18 @@ end
     @testset "NormalKKTSystem implementation" begin
         # Test
         linear_solver = MadNLP.LapackCPUSolver
-        cb = MadNLP.create_callback(
-            MadNLP.SparseCallback, qp,
-        )
-        kkt = MadNLP.create_kkt_system(
-            MadIPM.NormalKKTSystem,
-            cb,
-            linear_solver;
-        )
+        cb = MadNLP.create_callback(MadNLP.SparseCallback, qp)
+        kkt = MadNLP.create_kkt_system(MadIPM.NormalKKTSystem, cb, linear_solver;)
         MadNLPTests.test_kkt_system(kkt, cb)
     end
 
     @testset "Solve LP with NormalKKTSystem" begin
         solver = MadIPM.MPCSolver(
             qp;
-            linear_solver=LDLSolver,
-            print_level=MadNLP.ERROR,
-            kkt_system=MadIPM.NormalKKTSystem,
-            rethrow_error=true,
+            linear_solver = LDLSolver,
+            print_level = MadNLP.ERROR,
+            kkt_system = MadIPM.NormalKKTSystem,
+            rethrow_error = true,
         )
         sol = MadIPM.solve!(solver)
 
@@ -415,13 +550,23 @@ end
 
 @testset "Fixed variable with MakeParameter" begin
     solver = MadIPM.MPCSolver(
-        QuadraticModel([1.0, 1.0, 1.0], Int[], Int[], Float64[];
-            lcon=[1.0], Arows=[1, 1], Acols=[1, 2], Avals=[1.0, 1.0], ucon=[Inf],
-            lvar=[0.0, 0.0, 2.0], x0=[1.0, 1.0, 1.0], uvar=[Inf, Inf, 2.0],
+        QuadraticModel(
+            [1.0, 1.0, 1.0],
+            Int[],
+            Int[],
+            Float64[];
+            lcon = [1.0],
+            Arows = [1, 1],
+            Acols = [1, 2],
+            Avals = [1.0, 1.0],
+            ucon = [Inf],
+            lvar = [0.0, 0.0, 2.0],
+            x0 = [1.0, 1.0, 1.0],
+            uvar = [Inf, Inf, 2.0],
         );
-        print_level=MadNLP.ERROR,
-        fixed_variable_treatment=MadNLP.MakeParameter,
-        rethrow_error=true,
+        print_level = MadNLP.ERROR,
+        fixed_variable_treatment = MadNLP.MakeParameter,
+        rethrow_error = true,
     )
     sol = MadIPM.solve!(solver)
     @test sol.status == MadNLP.SOLVE_SUCCEEDED

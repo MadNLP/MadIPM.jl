@@ -7,12 +7,12 @@ Outcome of [`apply_presolve`](@ref): `PRESOLVE_UNCHANGED` (nothing to reduce),
 eliminated; `recover_solution(result, T[], T[])` yields the optimum).
 """
 @enum PresolveStatus::UInt8 begin
-  PRESOLVE_UNCHANGED               = 0
-  PRESOLVE_REDUCED                 = 1
-  PRESOLVE_INFEASIBLE              = 2
-  PRESOLVE_UNBOUNDED               = 3
-  PRESOLVE_UNBOUNDED_OR_INFEASIBLE = 4
-  PRESOLVE_SOLVED                  = 5
+    PRESOLVE_UNCHANGED = 0
+    PRESOLVE_REDUCED = 1
+    PRESOLVE_INFEASIBLE = 2
+    PRESOLVE_UNBOUNDED = 3
+    PRESOLVE_UNBOUNDED_OR_INFEASIBLE = 4
+    PRESOLVE_SOLVED = 5
 end
 
 """Abstract supertype for presolver configurations."""
@@ -51,10 +51,10 @@ function recover_solution end
 
 """Result for [`NoPresolver`](@ref). Aliases the original model — no copy."""
 struct NoPresolveResult{M<:ScalarModel} <: AbstractPresolveResult
-  reduced_model::M
+    reduced_model::M
 end
 
 apply_presolve(::NoPresolver, model::ScalarModel) =
-  (PRESOLVE_UNCHANGED, NoPresolveResult(model))
+    (PRESOLVE_UNCHANGED, NoPresolveResult(model))
 
 recover_solution(::NoPresolveResult, x::AbstractVector, y::AbstractVector) = (x, y)

@@ -30,7 +30,7 @@ function test_runtests()
             MOI.SolverVersion,
         ],
     )
-    MOI.Test.runtests(model, config, exclude=excludes)
+    MOI.Test.runtests(model, config, exclude = excludes)
     return
 end
 

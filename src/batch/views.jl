@@ -22,7 +22,7 @@ root_view(state::BatchViewState) = state.views[1]
 
 function is_identity_view(view::BatchView)
     view.n == view.batch_size_root || return false
-    @inbounds for i in 1:view.n
+    @inbounds for i = 1:view.n
         view.local_to_root[i] == i || return false
     end
     return true
@@ -35,7 +35,7 @@ end
 
 function _init_batch_view!(view::BatchView, batch_size::Int)
     view.n = batch_size
-    @inbounds for i in 1:batch_size
+    @inbounds for i = 1:batch_size
         idx = Int32(i)
         view.local_to_root[i] = idx
         view.local_to_slot[i] = idx
@@ -43,11 +43,17 @@ function _init_batch_view!(view::BatchView, batch_size::Int)
     return _sync_local_to_root_dev!(view)
 end
 
-function _select_local!(child::BatchView, parent::BatchView, selected_local, nselected::Int, reset_slots::Bool)
+function _select_local!(
+    child::BatchView,
+    parent::BatchView,
+    selected_local,
+    nselected::Int,
+    reset_slots::Bool,
+)
     child.n = nselected
     roots = parent.local_to_root
     slots = parent.local_to_slot
-    @inbounds for j in 1:nselected
+    @inbounds for j = 1:nselected
         parent_j = Int(selected_local[j])
         child.local_to_root[j] = roots[parent_j]
         child.local_to_slot[j] = reset_slots ? Int32(j) : slots[parent_j]
@@ -88,20 +94,25 @@ function select_local!(
     current = active_view(state)
     @assert length(keep) == current.n
     nselected = 0
-    @inbounds for i in 1:current.n
+    @inbounds for i = 1:current.n
         if keep[i]
             nselected += 1
             state.selected_local_buffer[nselected] = i
         end
     end
-    return select_local!(state, state.selected_local_buffer, nselected; reset_slots=reset_slots)
+    return select_local!(
+        state,
+        state.selected_local_buffer,
+        nselected;
+        reset_slots = reset_slots,
+    )
 end
 
 function exclude_local!(state::BatchViewState, exclude_mask::AbstractVector{Bool})
     current = active_view(state)
     @assert length(exclude_mask) == current.n
     nselected = 0
-    @inbounds for i in 1:current.n
+    @inbounds for i = 1:current.n
         if !exclude_mask[i]
             nselected += 1
             state.selected_local_buffer[nselected] = i
@@ -113,7 +124,7 @@ end
 function BatchViewState(bcb, batch_size::Int; max_layers::Int = 4)
     sample_dev = MadNLP.create_array(bcb, Int32, batch_size)
     views = Vector{BatchView{typeof(sample_dev)}}(undef, max_layers)
-    @inbounds for layer in 1:max_layers
+    @inbounds for layer = 1:max_layers
         views[layer] = BatchView(
             batch_size,
             layer,
@@ -127,11 +138,11 @@ function BatchViewState(bcb, batch_size::Int; max_layers::Int = 4)
     return BatchViewState(views, 1, Vector{Int32}(undef, batch_size))
 end
 
-function fill_batch_view_mask!(mask::AbstractMatrix{T}, batch_view::BatchView) where T
+function fill_batch_view_mask!(mask::AbstractMatrix{T}, batch_view::BatchView) where {T}
     @assert size(mask, 1) == 1
     @assert size(mask, 2) == batch_view.batch_size_root
     fill!(mask, zero(T))
-    @inbounds for j in 1:batch_view.n
+    @inbounds for j = 1:batch_view.n
         mask[1, batch_view.local_to_root[j]] = one(T)
     end
     return mask
@@ -141,17 +152,21 @@ function gather_batch_view_columns!(
     dst::AbstractMatrix{TD},
     src::AbstractMatrix{TS},
     batch_view::BatchView,
-) where {TD, TS}
+) where {TD,TS}
     roots = batch_view.local_to_root
-    @inbounds for j in 1:batch_view.n
+    @inbounds for j = 1:batch_view.n
         copyto!(view(dst, :, j), view(src, :, roots[j]))
     end
     return dst
 end
 
-function compact_active_columns_inplace!(dst::AbstractMatrix{T}, batch_view::BatchView, scratch=nothing) where T
+function compact_active_columns_inplace!(
+    dst::AbstractMatrix{T},
+    batch_view::BatchView,
+    scratch = nothing,
+) where {T}
     roots = batch_view.local_to_root
-    @inbounds for j in 1:batch_view.n
+    @inbounds for j = 1:batch_view.n
         src_j = roots[j]
         src_j < j && error("active view must be root-ordered")
         src_j != j && copyto!(view(dst, :, j), view(dst, :, src_j))
@@ -163,9 +178,9 @@ function scatter_batch_view_columns!(
     dst::AbstractMatrix{TD},
     src::AbstractMatrix{TS},
     batch_view::BatchView,
-) where {TD, TS}
+) where {TD,TS}
     roots = batch_view.local_to_root
-    @inbounds for j in 1:batch_view.n
+    @inbounds for j = 1:batch_view.n
         copyto!(view(dst, :, roots[j]), view(src, :, j))
     end
     return dst

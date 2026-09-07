@@ -1,5 +1,5 @@
 """Batched version of SparseKKTSystem"""
-struct SparseUniformBatchKKTSystem{T, LS, MT, VI, VI32, OPT, BVS} <: AbstractBatchKKTSystem{T}
+struct SparseUniformBatchKKTSystem{T,LS,MT,VI,VI32,OPT,BVS} <: AbstractBatchKKTSystem{T}
     nzVals::MT              # (aug_mat_length × batch_size) COO nonzero values
     aug_I::VI32             # shared row indices
     aug_J::VI32             # shared column indices
@@ -28,16 +28,16 @@ end
 pr_diag(bkkt::SparseUniformBatchKKTSystem) = view(bkkt.nzVals, 1:bkkt.n_tot, :)
 function du_diag(bkkt::SparseUniformBatchKKTSystem)
     du_off = size(bkkt.nzVals, 1) - bkkt.m
-    return view(bkkt.nzVals, du_off+1:du_off+bkkt.m, :)
+    return view(bkkt.nzVals, (du_off+1):(du_off+bkkt.m), :)
 end
 
 function MadNLP.create_kkt_system(
     ::Type{MadNLP.SparseKKTSystem},
-    bcb::UniformBatchCallback{T, VT, MT, VI},
+    bcb::UniformBatchCallback{T,VT,MT,VI},
     uniformbatch_linear_solver = LoopedBatchLinearSolver;
     opt_linear_solver = MadNLP.default_options(uniformbatch_linear_solver),
     batch_views,
-) where {T, VT, MT, VI}
+) where {T,VT,MT,VI}
     batch_size = bcb.batch_size
 
     n_slack = length(bcb.ind_ineq)
@@ -47,7 +47,8 @@ function MadNLP.create_kkt_system(
     jac_sparsity_J = MadNLP.create_array(bcb, Int32, bcb.nnzj)
     MadNLP._jac_sparsity_wrapper!(bcb, jac_sparsity_I, jac_sparsity_J)
 
-    hess_sparsity_I, hess_sparsity_J = MadNLP.build_hessian_structure(bcb, MadNLP.ExactHessian)
+    hess_sparsity_I, hess_sparsity_J =
+        MadNLP.build_hessian_structure(bcb, MadNLP.ExactHessian)
 
     nlb = length(bcb.ind_lb)
     nub = length(bcb.ind_ub)
@@ -73,16 +74,16 @@ function MadNLP.create_kkt_system(
     offset = n_tot+n_jac+n_slack+n_hess+m
 
     I[1:n_tot] .= 1:n_tot
-    I[n_tot+1:n_tot+n_hess] = hess_sparsity_I
-    I[n_tot+n_hess+1:n_tot+n_hess+n_jac] .= (jac_sparsity_I.+n_tot)
-    I[n_tot+n_hess+n_jac+1:n_tot+n_hess+n_jac+n_slack] .= ind_ineq .+ n_tot
-    I[n_tot+n_hess+n_jac+n_slack+1:offset] .= (n_tot+1:n_tot+m)
+    I[(n_tot+1):(n_tot+n_hess)] = hess_sparsity_I
+    I[(n_tot+n_hess+1):(n_tot+n_hess+n_jac)] .= (jac_sparsity_I .+ n_tot)
+    I[(n_tot+n_hess+n_jac+1):(n_tot+n_hess+n_jac+n_slack)] .= ind_ineq .+ n_tot
+    I[(n_tot+n_hess+n_jac+n_slack+1):offset] .= ((n_tot+1):(n_tot+m))
 
     J[1:n_tot] .= 1:n_tot
-    J[n_tot+1:n_tot+n_hess] = hess_sparsity_J
-    J[n_tot+n_hess+1:n_tot+n_hess+n_jac] .= jac_sparsity_J
-    J[n_tot+n_hess+n_jac+1:n_tot+n_hess+n_jac+n_slack] .= (n+1:n+n_slack)
-    J[n_tot+n_hess+n_jac+n_slack+1:offset] .= (n_tot+1:n_tot+m)
+    J[(n_tot+1):(n_tot+n_hess)] = hess_sparsity_J
+    J[(n_tot+n_hess+1):(n_tot+n_hess+n_jac)] .= jac_sparsity_J
+    J[(n_tot+n_hess+n_jac+1):(n_tot+n_hess+n_jac+n_slack)] .= ((n+1):(n+n_slack))
+    J[(n_tot+n_hess+n_jac+n_slack+1):offset] .= ((n_tot+1):(n_tot+m))
 
     aug_raw = MadNLP.SparseMatrixCOO(aug_vec_length, aug_vec_length, I, J, V)
     aug_com, aug_csc_map = MadNLP.coo_to_csc(aug_raw)
@@ -92,15 +93,20 @@ function MadNLP.create_kkt_system(
     fill!(aug_com_nzvals, zero(T))
 
     csc_offsets = similar(aug_csc_map, 1, batch_size)
-    csc_offsets .= (0:batch_size-1)' .* nnz_csc
+    csc_offsets .= (0:(batch_size-1))' .* nnz_csc
     batch_csc_map = vec(aug_csc_map .+ csc_offsets)
 
-    batch_ls = uniformbatch_linear_solver(aug_com, aug_com_nzvals, aug_vec_length; opt=opt_linear_solver)
+    batch_ls = uniformbatch_linear_solver(
+        aug_com,
+        aug_com_nzvals,
+        aug_vec_length;
+        opt = opt_linear_solver,
+    )
 
     rhs_buffer = similar(nzVals, aug_vec_length, batch_size)
     fill!(rhs_buffer, zero(T))
 
-    jac_range = n_tot+n_hess+1:n_tot+n_hess+n_jac+n_slack
+    jac_range = (n_tot+n_hess+1):(n_tot+n_hess+n_jac+n_slack)
 
     hess_op = _build_hess_op(I, J, n_tot, n_hess, nzVals, aug_csc_map)
     jt_op = _build_jt_op(I, J, jac_range, n_tot, nzVals, aug_csc_map)
@@ -117,24 +123,48 @@ function MadNLP.create_kkt_system(
     OPT = typeof(jt_op)
     compact_buffer = similar(nzVals, max(nnz_csc, aug_vec_length), batch_size)
 
-    return SparseUniformBatchKKTSystem{T, LS, MT, VI, VI32, OPT, typeof(batch_views)}(
-        nzVals, I, J, batch_ls, rhs_buffer, compact_buffer, batch_size, batch_views,
-        aug_com_nzvals, batch_csc_map, n_tot, m, n_hess,
-        reg, l_diag, u_diag, l_lower, u_lower,
-        hess_op, jt_op, j_op,
+    return SparseUniformBatchKKTSystem{T,LS,MT,VI,VI32,OPT,typeof(batch_views)}(
+        nzVals,
+        I,
+        J,
+        batch_ls,
+        rhs_buffer,
+        compact_buffer,
+        batch_size,
+        batch_views,
+        aug_com_nzvals,
+        batch_csc_map,
+        n_tot,
+        m,
+        n_hess,
+        reg,
+        l_diag,
+        u_diag,
+        l_lower,
+        u_lower,
+        hess_op,
+        jt_op,
+        j_op,
     )
 end
 
 function MadNLP.factorize_kkt!(bkkt::SparseUniformBatchKKTSystem)
     factor_view = active_view(bkkt.batch_views)
     if !is_identity_view(factor_view)
-        compact_active_columns_inplace!(bkkt.aug_com_nzvals, factor_view, bkkt.compact_buffer)
+        compact_active_columns_inplace!(
+            bkkt.aug_com_nzvals,
+            factor_view,
+            bkkt.compact_buffer,
+        )
     end
     factorize_active!(bkkt.batch_solver, factor_view)
     return
 end
 
-function MadNLP.solve_linear_system!(bkkt::SparseUniformBatchKKTSystem{T}, rhs::AbstractMatrix) where T
+function MadNLP.solve_linear_system!(
+    bkkt::SparseUniformBatchKKTSystem{T},
+    rhs::AbstractMatrix,
+) where {T}
     active = active_view(bkkt.batch_views)
     if !is_identity_view(active)
         compact_active_columns_inplace!(rhs, active, bkkt.compact_buffer)
@@ -143,43 +173,88 @@ function MadNLP.solve_linear_system!(bkkt::SparseUniformBatchKKTSystem{T}, rhs::
     return rhs
 end
 
-function _reduce_rhs_batch!(values::AbstractMatrix, ind_lb, lb_off, l_diag, ind_ub, ub_off, u_diag)
-    nlb = length(ind_lb); nub = length(ind_ub); bs = size(values, 2)
-    @inbounds for j in 1:bs, i in 1:nlb
-        values[ind_lb[i], j] -= values[lb_off + i, j] / l_diag[i, j]
+function _reduce_rhs_batch!(
+    values::AbstractMatrix,
+    ind_lb,
+    lb_off,
+    l_diag,
+    ind_ub,
+    ub_off,
+    u_diag,
+)
+    nlb = length(ind_lb);
+    nub = length(ind_ub);
+    bs = size(values, 2)
+    @inbounds for j = 1:bs, i = 1:nlb
+        values[ind_lb[i], j] -= values[lb_off+i, j] / l_diag[i, j]
     end
-    @inbounds for j in 1:bs, i in 1:nub
-        values[ind_ub[i], j] -= values[ub_off + i, j] / u_diag[i, j]
+    @inbounds for j = 1:bs, i = 1:nub
+        values[ind_ub[i], j] -= values[ub_off+i, j] / u_diag[i, j]
     end
 end
 
-function _finish_aug_solve_batch!(values::AbstractMatrix, ind_lb, lb_off, l_lower, l_diag,
-                                                          ind_ub, ub_off, u_lower, u_diag)
-    nlb = length(ind_lb); nub = length(ind_ub); bs = size(values, 2)
-    @inbounds for j in 1:bs, i in 1:nlb
-        values[lb_off + i, j] = (-values[lb_off + i, j] + l_lower[i, j] * values[ind_lb[i], j]) / l_diag[i, j]
+function _finish_aug_solve_batch!(
+    values::AbstractMatrix,
+    ind_lb,
+    lb_off,
+    l_lower,
+    l_diag,
+    ind_ub,
+    ub_off,
+    u_lower,
+    u_diag,
+)
+    nlb = length(ind_lb);
+    nub = length(ind_ub);
+    bs = size(values, 2)
+    @inbounds for j = 1:bs, i = 1:nlb
+        values[lb_off+i, j] =
+            (-values[lb_off+i, j] + l_lower[i, j] * values[ind_lb[i], j]) / l_diag[i, j]
     end
-    @inbounds for j in 1:bs, i in 1:nub
-        values[ub_off + i, j] = (values[ub_off + i, j] - u_lower[i, j] * values[ind_ub[i], j]) / u_diag[i, j]
+    @inbounds for j = 1:bs, i = 1:nub
+        values[ub_off+i, j] =
+            (values[ub_off+i, j] - u_lower[i, j] * values[ind_ub[i], j]) / u_diag[i, j]
     end
 end
 
 function MadNLP.reduce_rhs!(bkkt::SparseUniformBatchKKTSystem, d::BatchUnreducedKKTVector)
     lb_off = d.n + d.m
-    _reduce_rhs_batch!(d.values, d.ind_lb, lb_off, bkkt.l_diag,
-                                 d.ind_ub, lb_off + d.nlb, bkkt.u_diag)
+    _reduce_rhs_batch!(
+        d.values,
+        d.ind_lb,
+        lb_off,
+        bkkt.l_diag,
+        d.ind_ub,
+        lb_off + d.nlb,
+        bkkt.u_diag,
+    )
     return
 end
 
-function MadNLP.finish_aug_solve!(bkkt::SparseUniformBatchKKTSystem, batch_solver::AbstractBatchMPCSolver)
+function MadNLP.finish_aug_solve!(
+    bkkt::SparseUniformBatchKKTSystem,
+    batch_solver::AbstractBatchMPCSolver,
+)
     d = batch_solver.d
     lb_off = d.n + d.m
-    _finish_aug_solve_batch!(d.values, d.ind_lb, lb_off, bkkt.l_lower, bkkt.l_diag,
-                                       d.ind_ub, lb_off + d.nlb, bkkt.u_lower, bkkt.u_diag)
+    _finish_aug_solve_batch!(
+        d.values,
+        d.ind_lb,
+        lb_off,
+        bkkt.l_lower,
+        bkkt.l_diag,
+        d.ind_ub,
+        lb_off + d.nlb,
+        bkkt.u_lower,
+        bkkt.u_diag,
+    )
     return
 end
 
-function MadNLP.solve_kkt!(bkkt::SparseUniformBatchKKTSystem, batch_solver::AbstractBatchMPCSolver)
+function MadNLP.solve_kkt!(
+    bkkt::SparseUniformBatchKKTSystem,
+    batch_solver::AbstractBatchMPCSolver,
+)
     d = batch_solver.d
 
     MadNLP.reduce_rhs!(bkkt, d)
@@ -207,16 +282,25 @@ end
 function MadNLP.factorize_wrapper!(batch_solver::AbstractBatchMPCSolver)
     MadNLP.@trace(batch_solver.logger, "Factorization started.")
     MadNLP.build_kkt!(batch_solver.kkt)
-    batch_solver.batch_cnt.linear_solver_time[] += @elapsed MadNLP.factorize_kkt!(batch_solver.kkt)
+    batch_solver.batch_cnt.linear_solver_time[] +=
+        @elapsed MadNLP.factorize_kkt!(batch_solver.kkt)
     return
 end
 
-function MadNLP.jtprod!(res::AbstractMatrix, bkkt::SparseUniformBatchKKTSystem, y::BatchVector)
+function MadNLP.jtprod!(
+    res::AbstractMatrix,
+    bkkt::SparseUniformBatchKKTSystem,
+    y::BatchVector,
+)
     batch_spmv!(res, bkkt.jt_op, MadNLP.full(y))
     return res
 end
 
-function MadNLP.jtprod!(jacl::BatchVector, bkkt::SparseUniformBatchKKTSystem, y::BatchVector)
+function MadNLP.jtprod!(
+    jacl::BatchVector,
+    bkkt::SparseUniformBatchKKTSystem,
+    y::BatchVector,
+)
     return MadNLP.jtprod!(MadNLP.full(jacl), bkkt, y)
 end
 
@@ -235,10 +319,11 @@ function MadNLP.eval_jac_wrapper!(
     jac_free = MadNLP._eval_jac_wrapper!(bcb, ws.bx, bcb.jac_buffer)
 
     jac_offset = n_tot + bkkt.nnzh
-    view(nzVals, jac_offset+1:jac_offset+nnzj, :) .= jac_free
+    view(nzVals, (jac_offset+1):(jac_offset+nnzj), :) .= jac_free
 
     if n_slack > 0
-        view(nzVals, jac_offset+nnzj+1:jac_offset+nnzj+n_slack, :) .= -one(eltype(nzVals))
+        view(nzVals, (jac_offset+nnzj+1):(jac_offset+nnzj+n_slack), :) .=
+            -one(eltype(nzVals))
     end
     sync_batch_operator!(bkkt.j_op)
     sync_batch_operator!(bkkt.jt_op)
@@ -256,21 +341,28 @@ function MadNLP.eval_lag_hess_wrapper!(
     nnzh = bkkt.nnzh
 
     if nnzh > 0
-        hess = view(nzVals, n_tot+1:n_tot+nnzh, :)
+        hess = view(nzVals, (n_tot+1):(n_tot+nnzh), :)
         MadNLP.unpack_x!(ws.bx, bcb, batch_solver.x)
         bf_mat = reshape(ws.bf, 1, batch_solver.batch_size)
         @. bf_mat = bcb.obj_sign * bcb.obj_scale
-        MadNLP._eval_lag_hess_wrapper!(bcb, ws.bx, MadNLP.full(batch_solver.y), ws.bv, hess; obj_weight=ws.bf)
+        MadNLP._eval_lag_hess_wrapper!(
+            bcb,
+            ws.bx,
+            MadNLP.full(batch_solver.y),
+            ws.bv,
+            hess;
+            obj_weight = ws.bf,
+        )
         sync_batch_operator!(bkkt.hess_op)
     end
     return
 end
 
-function MadNLP.initialize!(bkkt::SparseUniformBatchKKTSystem{T}) where T
+function MadNLP.initialize!(bkkt::SparseUniformBatchKKTSystem{T}) where {T}
     pr_diag(bkkt) .= one(T)
     if bkkt.nnzh > 0
         n_tot = bkkt.n_tot
-        view(bkkt.nzVals, n_tot+1:n_tot+bkkt.nnzh, :) .= zero(T)
+        view(bkkt.nzVals, (n_tot+1):(n_tot+bkkt.nnzh), :) .= zero(T)
     end
     du_diag(bkkt) .= zero(T)
 
@@ -290,14 +382,25 @@ function LinearAlgebra.mul!(
     x::BatchUnreducedKKTVector{T},
     alpha = one(T),
     beta = zero(T),
-) where T
+) where {T}
     xv = MadNLP.full(x)
     # mul!(primal(w), Symmetric(kkt.hess_com, :L), primal(x), alpha, beta)
     batch_spmv!(MadNLP.primal(w), bkkt.hess_op, xv, alpha, beta)
     # mul!(primal(w), kkt.jac_com', dual(x), alpha, one(T))
-    batch_spmv!(MadNLP.primal(w), bkkt.jt_op, xv, alpha, one(T); val_offset=bkkt.n_tot)
+    batch_spmv!(MadNLP.primal(w), bkkt.jt_op, xv, alpha, one(T); val_offset = bkkt.n_tot)
     # mul!(dual(w), kkt.jac_com,  primal(x), alpha, beta)
     batch_spmv!(MadNLP.dual(w), bkkt.j_op, xv, alpha, beta)
-    _kktmul!(w, x, bkkt.reg, du_diag(bkkt), bkkt.l_lower, bkkt.u_lower, bkkt.l_diag, bkkt.u_diag, alpha, beta)
+    _kktmul!(
+        w,
+        x,
+        bkkt.reg,
+        du_diag(bkkt),
+        bkkt.l_lower,
+        bkkt.u_lower,
+        bkkt.l_diag,
+        bkkt.u_diag,
+        alpha,
+        beta,
+    )
     return w
 end

@@ -1,4 +1,8 @@
-function scale_rows_cols!(A::SparseMatrixCSC, rscale::AbstractVector, cscale::AbstractVector)
+function scale_rows_cols!(
+    A::SparseMatrixCSC,
+    rscale::AbstractVector,
+    cscale::AbstractVector,
+)
     rows, vals = rowvals(A), nonzeros(A)
     @inbounds for j in axes(A, 2)
         cj = cscale[j]
@@ -14,9 +18,15 @@ function scale_rows_cols!(A::SparseCOO, rscale::AbstractVector, cscale::Abstract
     return A
 end
 
-function scaled_maxabs!(rownrm::AbstractVector{T}, colnrm::AbstractVector{T},
-                        rowpair, colpair, A::SparseCOO{T},
-                        drow::AbstractVector{T}, dcol::AbstractVector{T}) where {T<:AbstractFloat}
+function scaled_maxabs!(
+    rownrm::AbstractVector{T},
+    colnrm::AbstractVector{T},
+    rowpair,
+    colpair,
+    A::SparseCOO{T},
+    drow::AbstractVector{T},
+    dcol::AbstractVector{T},
+) where {T<:AbstractFloat}
     @inbounds for k in eachindex(A.nzval)
         i, j = A.rowval[k], A.colval[k]
         ri = rowpair[i] > 0
@@ -29,10 +39,17 @@ function scaled_maxabs!(rownrm::AbstractVector{T}, colnrm::AbstractVector{T},
     return rownrm, colnrm
 end
 
-function scaled_argmax!(rowcand, colcand,
-                        rownrm::AbstractVector{T}, colnrm::AbstractVector{T},
-                        rowpair, colpair, A::SparseCOO{T},
-                        drow::AbstractVector{T}, dcol::AbstractVector{T}) where {T<:AbstractFloat}
+function scaled_argmax!(
+    rowcand,
+    colcand,
+    rownrm::AbstractVector{T},
+    colnrm::AbstractVector{T},
+    rowpair,
+    colpair,
+    A::SparseCOO{T},
+    drow::AbstractVector{T},
+    dcol::AbstractVector{T},
+) where {T<:AbstractFloat}
     @inbounds for k in eachindex(A.nzval)
         i, j = A.rowval[k], A.colval[k]
         ri = rowpair[i] > 0 && rownrm[i] > 0
@@ -45,9 +62,15 @@ function scaled_argmax!(rowcand, colcand,
     return rowcand, colcand
 end
 
-function scaled_maxabs!(rownrm::AbstractVector{T}, colnrm::AbstractVector{T},
-                        rowpair, colpair, A::SparseMatrixCSC{T},
-                        drow::AbstractVector{T}, dcol::AbstractVector{T}) where {T<:AbstractFloat}
+function scaled_maxabs!(
+    rownrm::AbstractVector{T},
+    colnrm::AbstractVector{T},
+    rowpair,
+    colpair,
+    A::SparseMatrixCSC{T},
+    drow::AbstractVector{T},
+    dcol::AbstractVector{T},
+) where {T<:AbstractFloat}
     rows, vals = rowvals(A), nonzeros(A)
     @inbounds for j in axes(A, 2)
         cj = colpair[j] > 0
@@ -64,10 +87,17 @@ function scaled_maxabs!(rownrm::AbstractVector{T}, colnrm::AbstractVector{T},
     return rownrm, colnrm
 end
 
-function scaled_argmax!(rowcand, colcand,
-                        rownrm::AbstractVector{T}, colnrm::AbstractVector{T},
-                        rowpair, colpair, A::SparseMatrixCSC{T},
-                        drow::AbstractVector{T}, dcol::AbstractVector{T}) where {T<:AbstractFloat}
+function scaled_argmax!(
+    rowcand,
+    colcand,
+    rownrm::AbstractVector{T},
+    colnrm::AbstractVector{T},
+    rowpair,
+    colpair,
+    A::SparseMatrixCSC{T},
+    drow::AbstractVector{T},
+    dcol::AbstractVector{T},
+) where {T<:AbstractFloat}
     rows, vals = rowvals(A), nonzeros(A)
     @inbounds for j in axes(A, 2)
         cj = colpair[j] > 0 && colnrm[j] > 0

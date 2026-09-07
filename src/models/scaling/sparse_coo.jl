@@ -1,4 +1,5 @@
-struct SparseCOO{T,Ti<:Integer,V<:AbstractVector{T},Vi<:AbstractVector{Ti}} <: SparseArrays.AbstractSparseMatrix{T,Ti}
+struct SparseCOO{T,Ti<:Integer,V<:AbstractVector{T},Vi<:AbstractVector{Ti}} <:
+       SparseArrays.AbstractSparseMatrix{T,Ti}
     m::Int
     n::Int
     rowval::Vi
@@ -6,7 +7,13 @@ struct SparseCOO{T,Ti<:Integer,V<:AbstractVector{T},Vi<:AbstractVector{Ti}} <: S
     nzval::V
 end
 
-SparseCOO(m::Integer, n::Integer, rowval::Vi, colval::Vi, nzval::V) where {T,Ti,V<:AbstractVector{T},Vi<:AbstractVector{Ti}} =
+SparseCOO(
+    m::Integer,
+    n::Integer,
+    rowval::Vi,
+    colval::Vi,
+    nzval::V,
+) where {T,Ti,V<:AbstractVector{T},Vi<:AbstractVector{Ti}} =
     SparseCOO{T,Ti,V,Vi}(m, n, rowval, colval, nzval)
 
 function SparseCOO(A::SparseArrays.SparseMatrixCSC)
@@ -28,4 +35,5 @@ function Base.getindex(A::SparseCOO{T}, i::Integer, j::Integer) where {T}
     return zero(T)
 end
 
-storage_vector(A::SparseCOO{T}, n, value::T) where {T} = fill!(similar(A.nzval, T, n), value)
+storage_vector(A::SparseCOO{T}, n, value::T) where {T} =
+    fill!(similar(A.nzval, T, n), value)

@@ -1,4 +1,8 @@
-function MadNLP.set_initial_bounds!(xl::AbstractMatrix{T}, xu::AbstractMatrix{T}, tol) where T
+function MadNLP.set_initial_bounds!(
+    xl::AbstractMatrix{T},
+    xu::AbstractMatrix{T},
+    tol,
+) where {T}
     if tol > zero(T)
         xl .= xl .- max.(one(T), abs.(xl)) .* tol
         xu .= xu .+ max.(one(T), abs.(xu)) .* tol
@@ -14,15 +18,15 @@ function MadNLP.initialize!(
     rhs,
     ind_ineq,
     bx_buffer;
-    tol=1e-8,
-    bound_push=1e-2,
-    bound_fac=1e-2,
-) where T
-    x0   = MadNLP.variable(x)
+    tol = 1e-8,
+    bound_push = 1e-2,
+    bound_fac = 1e-2,
+) where {T}
+    x0 = MadNLP.variable(x)
     lvar = MadNLP.variable(xl)
     uvar = MadNLP.variable(xu)
 
-    x0   .= MadNLP.get_x0(bcb)
+    x0 .= MadNLP.get_x0(bcb)
     lvar .= MadNLP.get_lvar(bcb)
     uvar .= MadNLP.get_uvar(bcb)
     y .= MadNLP.get_y0(bcb)
@@ -45,7 +49,13 @@ function MadNLP.initialize!(
     copyto!(MadNLP.slack(x), view(bcb.con_buffer, ind_ineq, :))
 
     MadNLP.set_initial_bounds!(MadNLP.slack(xl), MadNLP.slack(xu), tol)
-    MadNLP.slack(x) .= MadNLP._initialize_variables!.(MadNLP.slack(x), MadNLP.slack(xl), MadNLP.slack(xu), bound_push, bound_fac)
+    MadNLP.slack(x) .= MadNLP._initialize_variables!.(
+        MadNLP.slack(x),
+        MadNLP.slack(xl),
+        MadNLP.slack(xu),
+        bound_push,
+        bound_fac,
+    )
 
     return
 end
@@ -62,29 +72,47 @@ function MadNLP.set_con_scale_sparse!(
     return con_scale
 end
 
-function MadNLP._set_con_scale_sparse!(con_scale::MT, jac_I, jac_buffer) where {T,MT<:AbstractMatrix{T}}
+function MadNLP._set_con_scale_sparse!(
+    con_scale::MT,
+    jac_I,
+    jac_buffer,
+) where {T,MT<:AbstractMatrix{T}}
     nnzj = length(jac_I)
     bs = size(jac_buffer, 2)
-    @inbounds for k in 1:nnzj
+    @inbounds for k = 1:nnzj
         row = jac_I[k]
-        for j in 1:bs
+        for j = 1:bs
             con_scale[row, j] = max(con_scale[row, j], abs(jac_buffer[k, j]))
         end
     end
     return con_scale
 end
 
-function MadNLP.set_jac_scale_sparse!(jac_scale::MT, con_scale, jac_I) where {T,MT<:AbstractMatrix{T}}
+function MadNLP.set_jac_scale_sparse!(
+    jac_scale::MT,
+    con_scale,
+    jac_I,
+) where {T,MT<:AbstractMatrix{T}}
     return copyto!(jac_scale, @view(con_scale[jac_I, :]))
 end
 
-function MadNLP.set_obj_scale!(obj_scale, F::MT, max_gradient) where {T,MT<:AbstractMatrix{T}}
-    return obj_scale .= min.(one(T), max_gradient ./ maximum(abs, F; dims=1))
+function MadNLP.set_obj_scale!(
+    obj_scale,
+    F::MT,
+    max_gradient,
+) where {T,MT<:AbstractMatrix{T}}
+    return obj_scale .= min.(one(T), max_gradient ./ maximum(abs, F; dims = 1))
 end
 
 function MadNLP.set_scaling!(
     cb::UniformBatchCallback,
-    x, xl, xu, y, rhs, ind_ineq, nlp_scaling_max_gradient,
+    x,
+    xl,
+    xu,
+    y,
+    rhs,
+    ind_ineq,
+    nlp_scaling_max_gradient,
     bx_buffer,
 )
     x0 = MadNLP.variable(x)
@@ -101,7 +129,7 @@ function MadNLP.set_scaling!(
     con_scale_slk = @view(cb.con_scale[ind_ineq, :])
     y ./= cb.con_scale
     rhs .*= cb.con_scale
-    MadNLP.slack(x)  .*= con_scale_slk
+    MadNLP.slack(x) .*= con_scale_slk
     MadNLP.slack(xl) .*= con_scale_slk
     MadNLP.slack(xu) .*= con_scale_slk
     return

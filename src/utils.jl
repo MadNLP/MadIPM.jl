@@ -81,8 +81,12 @@ end
     divergence_tol::Float64 = 1e4
     divergence_scale::Float64 = 10.0
     kappa_d::Float64 = 1e-5
-    fixed_variable_treatment::Type = kkt_system <: MadNLP.SparseCondensedKKTSystem ? MadNLP.RelaxBound : MadNLP.MakeParameter
-    equality_treatment::Type = kkt_system <: MadNLP.SparseCondensedKKTSystem ? MadNLP.RelaxEquality : MadNLP.EnforceEquality
+    fixed_variable_treatment::Type =
+        kkt_system <: MadNLP.SparseCondensedKKTSystem ? MadNLP.RelaxBound :
+        MadNLP.MakeParameter
+    equality_treatment::Type =
+        kkt_system <: MadNLP.SparseCondensedKKTSystem ? MadNLP.RelaxEquality :
+        MadNLP.EnforceEquality
     # initialization options
     scaling::Bool = true
     nlp_scaling_max_gradient::Float64 = 100.0
@@ -109,15 +113,11 @@ end
 # smart option presets
 function IPMOptions(
     nlp::NLPModels.AbstractNLPModel{T};
-    kkt_system =  MadNLP.SparseKKTSystem,
-    linear_solver =  MadNLP.default_sparse_solver(nlp),
+    kkt_system = MadNLP.SparseKKTSystem,
+    linear_solver = MadNLP.default_sparse_solver(nlp),
     tol = 1e-8,
-) where T
-    return IPMOptions(
-        tol = tol,
-        kkt_system = kkt_system,
-        linear_solver = linear_solver,
-    )
+) where {T}
+    return IPMOptions(tol = tol, kkt_system = kkt_system, linear_solver = linear_solver)
 end
 
 function load_options(nlp; options...)
@@ -132,25 +132,21 @@ function load_options(nlp; options...)
 
     # Initiate logger
     logger = MadNLP.MadNLPLogger(
-        print_level=opt_ipm.print_level,
-        file_print_level=opt_ipm.file_print_level,
-        file = opt_ipm.output_file == "" ? nothing : open(opt_ipm.output_file,"w+"),
+        print_level = opt_ipm.print_level,
+        file_print_level = opt_ipm.file_print_level,
+        file = opt_ipm.output_file == "" ? nothing : open(opt_ipm.output_file, "w+"),
     )
-    MadNLP.@trace(logger,"Logger is initialized.")
+    MadNLP.@trace(logger, "Logger is initialized.")
 
     # Print remaning options (unsupported)
     if !isempty(remaining_options)
         MadNLP.print_ignored_options(logger, remaining_options)
     end
-    return (
-        interior_point=opt_ipm,
-        linear_solver=opt_linear_solver,
-        logger=logger,
-    )
+    return (interior_point = opt_ipm, linear_solver = opt_linear_solver, logger = logger)
 end
 
-function update_solution!(stats::MadNLP.MadNLPExecutionStats{T}, solver) where T
-    MadNLP.update!(stats,solver)
+function update_solution!(stats::MadNLP.MadNLPExecutionStats{T}, solver) where {T}
+    MadNLP.update!(stats, solver)
     return
 end
 
@@ -160,7 +156,7 @@ function coo_to_csr(
     Ai::AbstractVector{Ti},
     Aj::AbstractVector{Ti},
     Ax::AbstractVector{Tv},
-) where {Tv, Ti}
+) where {Tv,Ti}
     @assert length(Ai) == length(Aj) == length(Ax)
     nnz = length(Ai)
     Bp = zeros(Ti, n_rows+1)
@@ -168,20 +164,20 @@ function coo_to_csr(
     Bx = zeros(Tv, nnz)
 
     nnz = length(Ai)
-    @inbounds for n in 1:nnz
+    @inbounds for n = 1:nnz
         Bp[Ai[n]] += 1
     end
 
     # cumsum the nnz per row to get Bp
     cumsum = 1
-    @inbounds for i in 1:n_rows
+    @inbounds for i = 1:n_rows
         tmp = Bp[i]
         Bp[i] = cumsum
         cumsum += tmp
     end
     Bp[n_rows+1] = nnz + 1
 
-    @inbounds for n in 1:nnz
+    @inbounds for n = 1:nnz
         i = Ai[n]
         dest = Bp[i]
         Bj[dest] = Aj[n]
@@ -190,7 +186,7 @@ function coo_to_csr(
     end
 
     last = 1
-    @inbounds for i in 1:n_rows+1
+    @inbounds for i = 1:(n_rows+1)
         tmp = Bp[i]
         Bp[i] = last
         last = tmp
@@ -200,9 +196,7 @@ function coo_to_csr(
 end
 
 function coo_to_csr(A::MadNLP.SparseMatrixCOO)
-    return coo_to_csr(
-        A.m, A.n, A.I, A.J, A.V,
-    )
+    return coo_to_csr(A.m, A.n, A.I, A.J, A.V)
 end
 
 function build_normal_system(
@@ -216,14 +210,14 @@ function build_normal_system(
 
     # Count nonzeros per rows
     nnz = 0
-    @inbounds for i in 1:n_rows
-        for c in Jtp[i]:Jtp[i+1]-1
+    @inbounds for i = 1:n_rows
+        for c = Jtp[i]:(Jtp[i+1]-1)
             j = Jtj[c]
             xb[j] = UInt8(1)
         end
         # JᵀJ is symmetric, store only lower triangular part
-        for j in i:n_rows
-            for c in Jtp[j]:Jtp[j+1]-1
+        for j = i:n_rows
+            for c = Jtp[j]:(Jtp[j+1]-1)
                 k = Jtj[c]
                 if xb[k] == 1
                     nnz += 1
@@ -233,13 +227,13 @@ function build_normal_system(
             end
         end
         # Reset to 0
-        for c in Jtp[i]:Jtp[i+1]-1
+        for c = Jtp[i]:(Jtp[i+1]-1)
             xb[Jtj[c]] = UInt8(0)
         end
     end
     # cumsum the nnz per row to get Bp
     cumsum = 1
-    @inbounds for i in 1:n_rows
+    @inbounds for i = 1:n_rows
         tmp = Cp[i]
         Cp[i] = cumsum
         cumsum += tmp
@@ -248,14 +242,14 @@ function build_normal_system(
 
     Cj = zeros(Ti, nnz)
     cnt = 0
-    @inbounds for i in 1:n_rows
-        for c in Jtp[i]:Jtp[i+1]-1
+    @inbounds for i = 1:n_rows
+        for c = Jtp[i]:(Jtp[i+1]-1)
             j = Jtj[c]
             xb[j] = UInt8(1)
         end
         # JᵀJ is symmetric, store only lower triangular part
-        for j in i:n_rows
-            for c in Jtp[j]:Jtp[j+1]-1
+        for j = i:n_rows
+            for c = Jtp[j]:(Jtp[j+1]-1)
                 k = Jtj[c]
                 if xb[k] == 1
                     cnt += 1
@@ -264,7 +258,7 @@ function build_normal_system(
                 end
             end
         end
-        for c in Jtp[i]:Jtp[i+1]-1
+        for c = Jtp[i]:(Jtp[i+1]-1)
             xb[Jtj[c]] = UInt8(0)
         end
     end
@@ -282,24 +276,24 @@ function assemble_normal_system!(
     Cj::AbstractVector{Ti},
     Cx::AbstractVector{Tv},
     Dx::AbstractVector{Tv},
-) where {Ti, Tv}
+) where {Ti,Tv}
     buffer = zeros(Tv, n_cols)
-    @inbounds for i in 1:n_rows
+    @inbounds for i = 1:n_rows
         # Read row i
-        for c in Jtp[i]:Jtp[i+1]-1
+        for c = Jtp[i]:(Jtp[i+1]-1)
             j = Jtj[c]
             buffer[j] = Jtx[c] * Dx[j]
         end
-        for c in Cp[i]:Cp[i+1]-1
+        for c = Cp[i]:(Cp[i+1]-1)
             j = Cj[c]
             Cx[c] = Tv(0)
-            for d in Jtp[j]:Jtp[j+1]-1
+            for d = Jtp[j]:(Jtp[j+1]-1)
                 k = Jtj[d]
                 Cx[c] += buffer[k] * Jtx[d]
             end
         end
         # Reset buffer
-        for c in Jtp[i]:Jtp[i+1]-1
+        for c = Jtp[i]:(Jtp[i+1]-1)
             j = Jtj[c]
             buffer[j] = Tv(0)
         end
@@ -315,7 +309,7 @@ _nzval(A::SparseArrays.SparseMatrixCSC) = A.nzval
     Vendored model wrappers (see src/models/)
 =#
 
-const _BQMScalarModel = Union{LinearModel, QuadraticModel}
+const _BQMScalarModel = Union{LinearModel,QuadraticModel}
 
 """
     model, status = presolve_qp(qp; presolver = BasicPresolver())
@@ -378,7 +372,7 @@ function standard_form_qp(qp::_BQMScalarModel)
 
     # Count ineq. constraints
     ind_ineq = Int[]
-    for i in 1:m
+    for i = 1:m
         (lcon[i] < ucon[i]) && push!(ind_ineq, i)
     end
     ns = length(ind_ineq)
@@ -388,7 +382,7 @@ function standard_form_qp(qp::_BQMScalarModel)
     ind_only_ub = Int[]
     ind_fixed = Int[]
     xu = Float64[]
-    for i in 1:n
+    for i = 1:n
         if (lvar[i] == uvar[i])
             # Fixed variable
             push!(ind_fixed, i)
@@ -449,7 +443,7 @@ function standard_form_qp(qp::_BQMScalarModel)
     lcon_ = zeros(ncon)
     ucon_ = zeros(ncon)
 
-    for i in 1:m
+    for i = 1:m
         if lcon[i] < ucon[i]
             # inequality constraints
             lcon_[i] = 0.0
@@ -461,8 +455,8 @@ function standard_form_qp(qp::_BQMScalarModel)
         end
     end
     for (k, i) in enumerate(ind_rng)
-        lcon_[m + k] = xu[k]
-        ucon_[m + k] = xu[k]
+        lcon_[m+k] = xu[k]
+        ucon_[m+k] = xu[k]
     end
 
     lvar_ = [lvar; lcon[ind_ineq]; zeros(nw)]
@@ -472,21 +466,41 @@ function standard_form_qp(qp::_BQMScalarModel)
     # Keep fixed variables in the formulation
     uvar_[ind_fixed] .= uvar[ind_fixed]
 
-    c_  = vcat(qp.data.c, zeros(T, ns + nw))
+    c_ = vcat(qp.data.c, zeros(T, ns + nw))
     x0_ = vcat(qp.meta.x0, zeros(T, ns + nw))
     y0_ = vcat(qp.meta.y0, zeros(T, nw))
-    c0  = @inbounds qp.data.c0[1]
+    c0 = @inbounds qp.data.c0[1]
 
     if qp isa QuadraticModel
         Q_src = operator_sparse_matrix(qp.data.Q)
         Qi, Qj, Qx = SparseArrays.findnz(Q_src)
         Qs = SparseMatrixCOO(nvar, nvar, Qi, Qj, Qx)
-        data = QPData(As, c_, Qs;
-            lvar = lvar_, uvar = uvar_, lcon = lcon_, ucon = ucon_, c0 = c0)
-        return QuadraticModel(data; x0 = x0_, y0 = y0_, minimize = qp.meta.minimize, name = qp.meta.name)
+        data = QPData(
+            As,
+            c_,
+            Qs;
+            lvar = lvar_,
+            uvar = uvar_,
+            lcon = lcon_,
+            ucon = ucon_,
+            c0 = c0,
+        )
+        return QuadraticModel(
+            data;
+            x0 = x0_,
+            y0 = y0_,
+            minimize = qp.meta.minimize,
+            name = qp.meta.name,
+        )
     else
-        data = LPData(As, c_;
-            lvar = lvar_, uvar = uvar_, lcon = lcon_, ucon = ucon_, c0 = c0)
-        return LinearModel(data; x0 = x0_, y0 = y0_, minimize = qp.meta.minimize, name = qp.meta.name)
+        data =
+            LPData(As, c_; lvar = lvar_, uvar = uvar_, lcon = lcon_, ucon = ucon_, c0 = c0)
+        return LinearModel(
+            data;
+            x0 = x0_,
+            y0 = y0_,
+            minimize = qp.meta.minimize,
+            name = qp.meta.name,
+        )
     end
 end

@@ -11,18 +11,28 @@ import SparseMatricesCOO: SparseMatrixCOO
 include("models/Models.jl")
 import .Models
 import .Models:
-  LinearModel, QuadraticModel, LPData, QPData,
-  ObjRHSBatchQuadraticModel,
-  batch_spmv!,
-  sync_batch_operator!,
-  batch_mapreduce!,
-  batch_maximum!,
-  operator_sparse_matrix
+    LinearModel,
+    QuadraticModel,
+    LPData,
+    QPData,
+    ObjRHSBatchQuadraticModel,
+    batch_spmv!,
+    sync_batch_operator!,
+    batch_mapreduce!,
+    batch_maximum!,
+    operator_sparse_matrix
 import .Models.Presolve:
-  AbstractPresolver, BasicPresolver, NoPresolver,
-  PRESOLVE_REDUCED, PRESOLVE_UNCHANGED, PRESOLVE_INFEASIBLE,
-  PRESOLVE_UNBOUNDED, PRESOLVE_UNBOUNDED_OR_INFEASIBLE, PRESOLVE_SOLVED,
-  apply_presolve, recover_solution
+    AbstractPresolver,
+    BasicPresolver,
+    NoPresolver,
+    PRESOLVE_REDUCED,
+    PRESOLVE_UNCHANGED,
+    PRESOLVE_INFEASIBLE,
+    PRESOLVE_UNBOUNDED,
+    PRESOLVE_UNBOUNDED_OR_INFEASIBLE,
+    PRESOLVE_SOLVED,
+    apply_presolve,
+    recover_solution
 
 include("utils.jl")
 include("structure.jl")

@@ -1,11 +1,13 @@
 function MadNLP._update_x!(
-    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}, x,
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+    x,
 ) where {T,VT,MT,VI,BM,FH,EH}
     return x
 end
 
 function MadNLP._update_x!(
-    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}, x,
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+    x,
 ) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
     fh = bcb.fixed_handler
     nvar_nlp = bcb.nlp.meta.nvar
@@ -17,13 +19,17 @@ function MadNLP._update_x!(
 end
 
 function MadNLP.unpack_x!(
-    X_full::AbstractMatrix, bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}, x::BatchPrimalVector,
+    X_full::AbstractMatrix,
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+    x::BatchPrimalVector,
 ) where {T,VT,MT,VI,BM,FH,EH}
     X_full .= MadNLP.variable(x)
 end
 
 function MadNLP.unpack_x!(
-    X_full::AbstractMatrix, bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}, x::BatchPrimalVector,
+    X_full::AbstractMatrix,
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+    x::BatchPrimalVector,
 ) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
     fh = bcb.fixed_handler
     X_full[fh.free, :] .= MadNLP.variable(x)
@@ -31,31 +37,45 @@ function MadNLP.unpack_x!(
 end
 
 function MadNLP.unpack_z!(
-    Z_full::AbstractMatrix, bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}, z_free,
+    Z_full::AbstractMatrix,
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+    z_free,
 ) where {T,VT,MT,VI,BM,FH,EH}
     Z_full .= z_free ./ bcb.obj_scale
 end
 
 function MadNLP.unpack_z!(
-    Z_full::AbstractMatrix, bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}, z_free,
+    Z_full::AbstractMatrix,
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+    z_free,
 ) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
     fill!(Z_full, zero(T))
     Z_full[bcb.fixed_handler.free, :] .= z_free ./ bcb.obj_scale
 end
 
-function MadNLP.get_x0(bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
+function MadNLP.get_x0(
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
     view(bcb.nlp.meta.x0, bcb.fixed_handler.free, :)
 end
 
 MadNLP.get_y0(bcb::UniformBatchCallback) = bcb.nlp.meta.y0
 
-MadNLP.get_lvar(bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}) where {T,VT,MT,VI,BM,FH,EH} = bcb.nlp.meta.lvar
-function MadNLP.get_lvar(bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
+MadNLP.get_lvar(
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+) where {T,VT,MT,VI,BM,FH,EH} = bcb.nlp.meta.lvar
+function MadNLP.get_lvar(
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
     view(bcb.nlp.meta.lvar, bcb.fixed_handler.free, :)
 end
 
-MadNLP.get_uvar(bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}) where {T,VT,MT,VI,BM,FH,EH} = bcb.nlp.meta.uvar
-function MadNLP.get_uvar(bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
+MadNLP.get_uvar(
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+) where {T,VT,MT,VI,BM,FH,EH} = bcb.nlp.meta.uvar
+function MadNLP.get_uvar(
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
     view(bcb.nlp.meta.uvar, bcb.fixed_handler.free, :)
 end
 
@@ -78,20 +98,30 @@ function MadNLP.unpack_cons!(c_full, bcb::UniformBatchCallback, c, rhs, ind_ineq
     end
 end
 
-function MadNLP._eval_f_wrapper(bcb::UniformBatchCallback, bx::AbstractMatrix, bf::AbstractVector)
+function MadNLP._eval_f_wrapper(
+    bcb::UniformBatchCallback,
+    bx::AbstractMatrix,
+    bf::AbstractVector,
+)
     NLPModels.obj!(bcb.nlp, bx, bf)
     bf .*= vec(bcb.obj_scale)
     return bf
 end
 
-function MadNLP._eval_cons_wrapper!(bcb::UniformBatchCallback, bx::AbstractMatrix, bc_mat::AbstractMatrix)
+function MadNLP._eval_cons_wrapper!(
+    bcb::UniformBatchCallback,
+    bx::AbstractMatrix,
+    bc_mat::AbstractMatrix,
+)
     NLPModels.cons!(bcb.nlp, bx, bc_mat)
     bc_mat .*= bcb.con_scale
     return bc_mat
 end
 
 function MadNLP._eval_grad_f_wrapper!(
-    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}, bx::AbstractMatrix, bg::AbstractMatrix,
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+    bx::AbstractMatrix,
+    bg::AbstractMatrix,
 ) where {T,VT,MT,VI,BM,FH,EH}
     NLPModels.grad!(bcb.nlp, bx, bg)
     bg .*= bcb.obj_scale
@@ -99,7 +129,9 @@ function MadNLP._eval_grad_f_wrapper!(
 end
 
 function MadNLP._eval_grad_f_wrapper!(
-    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}, bx::AbstractMatrix, bg::AbstractMatrix,
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+    bx::AbstractMatrix,
+    bg::AbstractMatrix,
 ) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
     fh = bcb.fixed_handler
     nvar_nlp = bcb.nlp.meta.nvar
@@ -111,7 +143,9 @@ function MadNLP._eval_grad_f_wrapper!(
 end
 
 function MadNLP._eval_jac_wrapper!(
-    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}, bx::AbstractMatrix, jac_buffer::AbstractMatrix,
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+    bx::AbstractMatrix,
+    jac_buffer::AbstractMatrix,
 ) where {T,VT,MT,VI,BM,FH,EH}
     NLPModels.jac_coord!(bcb.nlp, bx, jac_buffer)
     jac_buffer .*= bcb.jac_scale
@@ -119,7 +153,9 @@ function MadNLP._eval_jac_wrapper!(
 end
 
 function MadNLP._eval_jac_wrapper!(
-    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH}, bx::AbstractMatrix, jac_buffer::AbstractMatrix,
+    bcb::UniformBatchCallback{T,VT,MT,VI,BM,FH,EH},
+    bx::AbstractMatrix,
+    jac_buffer::AbstractMatrix,
 ) where {T,VT,MT,VI,BM,FH<:MadNLP.MakeParameter,EH}
     NLPModels.jac_coord!(bcb.nlp, bx, jac_buffer)
     jac_free = view(jac_buffer, bcb.fixed_handler.ind_jac_free, :)

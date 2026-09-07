@@ -6,7 +6,7 @@ struct UniformBatchCallback{
     BM<:NLPModels.AbstractBatchNLPModel,
     FH<:MadNLP.AbstractFixedVariableTreatment,
     EH<:MadNLP.AbstractEqualityTreatment,
-} <: MadNLP.AbstractCallback{T, VT, FH}
+} <: MadNLP.AbstractCallback{T,VT,FH}
     nlp::BM
     batch_size::Int
 
@@ -48,8 +48,12 @@ end
 function MadNLP.create_sparse_fixed_handler(
     ::Type{MadNLP.MakeParameter},
     bnlp::NLPModels.AbstractBatchNLPModel{T},
-    jac_I, jac_J, hess_I, hess_J, hess_buffer,
-) where T
+    jac_I,
+    jac_J,
+    hess_I,
+    hess_J,
+    hess_buffer,
+) where {T}
     n = NLPModels.get_nvar(bnlp)
     lvar = view(bnlp.meta.lvar, :, 1)
     uvar = view(bnlp.meta.uvar, :, 1)
@@ -72,7 +76,8 @@ function MadNLP.create_sparse_fixed_handler(
 
     free = findall(isfree)
     nx = length(free)
-    map_full_to_free = similar(jac_I, n); fill!(map_full_to_free, -1)
+    map_full_to_free = similar(jac_I, n);
+    fill!(map_full_to_free, -1)
     map_full_to_free[free] .= 1:nx
 
     ind_jac_free = findall(@view(isfree[jac_J]))
@@ -112,13 +117,13 @@ end
 function MadNLP.create_callback(
     ::Type{UniformBatchCallback{T,VT,MT,VI}},
     bnlp::NLPModels.AbstractBatchNLPModel{T};
-    fixed_variable_treatment=MadNLP.MakeParameter,
-    equality_treatment=MadNLP.EnforceEquality,
-    check_batch_structure::Bool=true,
+    fixed_variable_treatment = MadNLP.MakeParameter,
+    equality_treatment = MadNLP.EnforceEquality,
+    check_batch_structure::Bool = true,
 ) where {T,VT,MT,VI}
     bmeta = bnlp.meta
     batch_size = bmeta.nbatch
-    
+
     n = bmeta.nvar
     m = bmeta.ncon
     nnzj = bmeta.nnzj
@@ -146,12 +151,12 @@ function MadNLP.create_callback(
 
     if check_batch_structure
         row_sums = vcat(
-            sum(bmeta.lvar .== bmeta.uvar; dims=2),
-            sum(isfinite.(bmeta.lvar); dims=2),
-            sum(isfinite.(bmeta.uvar); dims=2),
-            sum(bmeta.lcon .== bmeta.ucon; dims=2),
-            sum(isfinite.(bmeta.lcon); dims=2),
-            sum(isfinite.(bmeta.ucon); dims=2),
+            sum(bmeta.lvar .== bmeta.uvar; dims = 2),
+            sum(isfinite.(bmeta.lvar); dims = 2),
+            sum(isfinite.(bmeta.uvar); dims = 2),
+            sum(bmeta.lcon .== bmeta.ucon; dims = 2),
+            sum(isfinite.(bmeta.lcon); dims = 2),
+            sum(isfinite.(bmeta.ucon); dims = 2),
         )
         @assert all((row_sums .== 0) .| (row_sums .== batch_size)) "Batch fixed/bound/equality structure must match across instances"
     end
@@ -173,7 +178,8 @@ function MadNLP.create_callback(
     equality_handler = equality_treatment()
 
     # Allocate with reduced sizes (after fixed var removal)
-    jac_scale = similar(x0, nnzj, batch_size); fill!(jac_scale, one(T))
+    jac_scale = similar(x0, nnzj, batch_size);
+    fill!(jac_scale, one(T))
     grad_buffer = fill!(similar(x0, nvar, batch_size), zero(T))
 
     # Get fixed variables
@@ -187,7 +193,15 @@ function MadNLP.create_callback(
 
     indexes = MadNLP._parse_indexes(lvar, uvar, lcon, ucon, equality_treatment)
 
-    return UniformBatchCallback{T, VT, MT, VI, typeof(bnlp), typeof(fixed_handler), typeof(equality_handler)}(
+    return UniformBatchCallback{
+        T,
+        VT,
+        MT,
+        VI,
+        typeof(bnlp),
+        typeof(fixed_handler),
+        typeof(equality_handler),
+    }(
         bnlp,
         batch_size,
         nvar,
@@ -220,19 +234,30 @@ end
 
 
 
-function MadNLP._jac_sparsity_wrapper!(bcb::UniformBatchCallback, I::AbstractVector, J::AbstractVector)
+function MadNLP._jac_sparsity_wrapper!(
+    bcb::UniformBatchCallback,
+    I::AbstractVector,
+    J::AbstractVector,
+)
     copyto!(I, bcb.jac_I)
     copyto!(J, bcb.jac_J)
     return
 end
 
-function MadNLP._hess_sparsity_wrapper!(bcb::UniformBatchCallback, I::AbstractVector, J::AbstractVector)
+function MadNLP._hess_sparsity_wrapper!(
+    bcb::UniformBatchCallback,
+    I::AbstractVector,
+    J::AbstractVector,
+)
     copyto!(I, bcb.hess_I)
     copyto!(J, bcb.hess_J)
     return
 end
 
-function MadNLP.build_hessian_structure(bcb::UniformBatchCallback, ::Type{<:MadNLP.ExactHessian})
+function MadNLP.build_hessian_structure(
+    bcb::UniformBatchCallback,
+    ::Type{<:MadNLP.ExactHessian},
+)
     hess_I = MadNLP.create_array(bcb, Int32, bcb.nnzh)
     hess_J = MadNLP.create_array(bcb, Int32, bcb.nnzh)
     MadNLP._hess_sparsity_wrapper!(bcb, hess_I, hess_J)
