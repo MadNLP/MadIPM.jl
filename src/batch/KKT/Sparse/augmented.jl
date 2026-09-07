@@ -295,6 +295,6 @@ function LinearAlgebra.mul!(
     batch_spmv!(MadNLP.primal(w), bkkt.jt_op, xv, alpha, one(T); val_offset=bkkt.n_tot)
     # mul!(dual(w), kkt.jac_com,  primal(x), alpha, beta)
     batch_spmv!(MadNLP.dual(w), bkkt.j_op, xv, alpha, beta)
-    _kktmul!(w, x, bkkt.reg, du_diag(bkkt), bkkt.l_lower, bkkt.u_lower, bkkt.l_diag, bkkt.u_diag, alpha, beta)
+    _kktmul!(w, x, bkkt, alpha, beta)
     return w
 end
